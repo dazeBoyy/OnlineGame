@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: bitnami/postgresql
+    container_name: my-postgres
+    environment:
+      POSTGRES_USER: myuser       # Логин для PostgreSQL
+      POSTGRES_PASSWORD: mypassword # Пароль
+      POSTGRES_DB: mydb          # Название БД
+    ports:
+      - "5432:5432"               # Проброс порта
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:                  # Имя volume для данных
