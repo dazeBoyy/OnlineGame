@@ -25,7 +25,8 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**").permitAll() // Разрешаем доступ к эндпоинтам аутентификации и регистрации
+                        .requestMatchers("/api/auth/**").permitAll()
+//                        .requestMatchers("/api/admin/**").hasRole("ADMIN")// Разрешаем доступ к эндпоинтам аутентификации и регистрации
                         .anyRequest().authenticated() // Все остальные запросы требуют аутентификации
                 )
                 .addFilterBefore(jwtAuthorizationFilter, UsernamePasswordAuthenticationFilter.class)

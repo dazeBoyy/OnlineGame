@@ -12,5 +12,6 @@ import lombok.*;
 @Builder
 class ItemAttribute {
     private String key;
+    private String display;
     private String value;
 }

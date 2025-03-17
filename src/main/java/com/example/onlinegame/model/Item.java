@@ -1,5 +1,8 @@
 package com.example.onlinegame.model;
 
+import com.example.onlinegame.dataImport.StringOrArrayDeserializer;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -12,23 +15,27 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Item {
+
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY) // Автоинкрементное поле
     private Long id;
 
     @Column(name = "item_id", unique = true, nullable = false)
-    private Integer itemId; // Это ID предмета из JSON
+    private Long itemId; // ID предмета из JSON
 
     private String dname;
     private String img;
     private String lore;
     private int cost;
+    @JsonDeserialize(using = StringOrArrayDeserializer.class) // Применяем кастомный десериализатор
     private String behavior;
-    @Column(length = 1000) // Увеличьте длину столбца
+    @Column(length = 1000)
     private String notes;
     private boolean mc;
     private boolean hc;
-    private int cd;
+    private boolean cd;
     private boolean created;
     private boolean charges;
 
