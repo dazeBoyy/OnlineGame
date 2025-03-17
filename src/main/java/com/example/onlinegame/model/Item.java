@@ -16,6 +16,9 @@ public class Item {
     @Id
     private Long id;
 
+    @Column(name = "item_id", unique = true, nullable = false)
+    private Integer itemId; // Это ID предмета из JSON
+
     private String dname;
     private String img;
     private String lore;
