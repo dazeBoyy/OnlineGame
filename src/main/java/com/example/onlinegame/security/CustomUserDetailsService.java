@@ -1,7 +1,7 @@
 package com.example.onlinegame.security;
 
-import com.example.onlinegame.model.User;
-import com.example.onlinegame.repo.UserRepository;
+import com.example.onlinegame.model.user.User;
+import com.example.onlinegame.repo.user.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;

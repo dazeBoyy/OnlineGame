@@ -1,4 +1,4 @@
-package com.example.onlinegame.model;
+package com.example.onlinegame.model.user;
 
 import jakarta.persistence.*;
 import lombok.Data;

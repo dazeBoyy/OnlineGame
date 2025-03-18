@@ -1,11 +1,11 @@
- package com.example.onlinegame.controller;
+ package com.example.onlinegame.controller.auth;
 
  import com.example.onlinegame.dto.request.AuthRequest;
  import com.example.onlinegame.dto.response.AuthResponse;
- import com.example.onlinegame.model.Role;
- import com.example.onlinegame.repo.RoleRepository;
+ import com.example.onlinegame.model.user.Role;
+ import com.example.onlinegame.repo.user.RoleRepository;
  import lombok.RequiredArgsConstructor;
- import com.example.onlinegame.model.User;
+ import com.example.onlinegame.model.user.User;
  import org.springframework.http.HttpStatus;
  import org.springframework.http.ResponseEntity;
  import org.springframework.security.authentication.AuthenticationManager;
@@ -18,11 +18,10 @@
  import org.springframework.web.bind.annotation.RequestBody;
  import org.springframework.web.bind.annotation.RequestMapping;
  import org.springframework.web.bind.annotation.RestController;
- import com.example.onlinegame.repo.UserRepository;
+ import com.example.onlinegame.repo.user.UserRepository;
  import com.example.onlinegame.security.JwtUtil;
 
  import java.util.List;
- import java.util.Optional;
  import java.util.stream.Collectors;
 
 

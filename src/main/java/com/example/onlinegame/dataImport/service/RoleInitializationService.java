@@ -1,19 +1,16 @@
 package com.example.onlinegame.dataImport.service;
 
-import com.example.onlinegame.model.Role;
-import com.example.onlinegame.repo.RoleRepository;
+import com.example.onlinegame.model.user.Role;
+import com.example.onlinegame.repo.user.RoleRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
-import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.List;
 
 @Service

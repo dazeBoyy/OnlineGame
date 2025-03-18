@@ -1,10 +1,10 @@
-package com.example.onlinegame.controller;
+package com.example.onlinegame.controller.dota2;
 
 
 import lombok.RequiredArgsConstructor;
-import com.example.onlinegame.model.Hero;
+import com.example.onlinegame.model.dota2.Hero;
 import org.springframework.web.bind.annotation.*;
-import com.example.onlinegame.repo.HeroRepository;
+import com.example.onlinegame.repo.game.HeroRepository;
 
 import java.util.List;
 

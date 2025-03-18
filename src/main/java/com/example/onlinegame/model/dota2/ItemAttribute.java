@@ -1,4 +1,4 @@
-package com.example.onlinegame.model;
+package com.example.onlinegame.model.dota2;
 
 
 import jakarta.persistence.*;

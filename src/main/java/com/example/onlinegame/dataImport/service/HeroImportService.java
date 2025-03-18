@@ -1,7 +1,7 @@
 package com.example.onlinegame.dataImport.service;
 
-import com.example.onlinegame.model.Hero;
-import com.example.onlinegame.repo.HeroRepository;
+import com.example.onlinegame.model.dota2.Hero;
+import com.example.onlinegame.repo.game.HeroRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

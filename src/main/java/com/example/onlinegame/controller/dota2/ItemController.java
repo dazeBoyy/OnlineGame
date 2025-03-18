@@ -1,9 +1,9 @@
-package com.example.onlinegame.controller;
+package com.example.onlinegame.controller.dota2;
 
 import lombok.RequiredArgsConstructor;
-import com.example.onlinegame.model.Item;
+import com.example.onlinegame.model.dota2.Item;
 import org.springframework.web.bind.annotation.*;
-import com.example.onlinegame.repo.ItemRepository;
+import com.example.onlinegame.repo.game.ItemRepository;
 
 import java.util.List;
 

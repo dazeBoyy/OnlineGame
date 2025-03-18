@@ -1,6 +1,6 @@
-package com.example.onlinegame.repo;
+package com.example.onlinegame.repo.user;
 
-import com.example.onlinegame.model.User;
+import com.example.onlinegame.model.user.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
