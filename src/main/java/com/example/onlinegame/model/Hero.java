@@ -30,4 +30,16 @@ public class Hero {
     @Column(name = "lanes")
     private List<String> lanes;
 
+    private Integer complexity; // Новое поле
+    private Integer releaseYear; // Новое поле
+    private String image; // Новое поле
+    private String heroImageName; // Новое поле
+    private String gender; // Новое поле
+
+    @ElementCollection
+    @CollectionTable(name = "hero_races", joinColumns = @JoinColumn(name = "hero_id"))
+    @Column(name = "races")
+    private List<String> race; // Новое поле
+
+    private Integer legs; // Новое поле
 }

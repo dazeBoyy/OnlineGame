@@ -1,6 +1,7 @@
 package com.example.onlinegame.security;
 
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.apachecommons.CommonsLog;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.List;
 
 
 @CommonsLog
@@ -25,13 +27,14 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateToken(String username) {
+    public String generateToken(String username, List<String> roles) {
         return Jwts.builder()
-                .setSubject(username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSecretKey())
-                .compact();
+                .setSubject(username) // Устанавливаем имя пользователя
+                .claim("roles", roles) // Добавляем роли в токен
+                .setIssuedAt(new Date()) // Устанавливаем время создания токена
+                .setExpiration(new Date(System.currentTimeMillis() + expiration)) // Устанавливаем срок действия токена
+                .signWith(getSecretKey()) // Подписываем токен
+                .compact(); // Генерируем токен
     }
 
     public boolean validateToken(String token) {
@@ -45,6 +48,15 @@ public class JwtUtil {
             log.error("Error validating JWT token: " + e.getMessage(), e);
             return false;
         }
+    }
+    public List<String> getRolesFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSecretKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+
+        return claims.get("roles", List.class);
     }
 
     public String getUsernameFromToken(String token) {
