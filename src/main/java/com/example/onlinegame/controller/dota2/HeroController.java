@@ -19,4 +19,9 @@ public class HeroController {
     public List<Hero> getHeroes() {
         return heroRepository.findAll();
     }
+
+    @GetMapping("/{heroId}")
+    public Hero getHero(@PathVariable Long heroId) {
+        return heroRepository.findById(heroId).orElseThrow(() -> new RuntimeException("Hero not found"));
+    }
 }

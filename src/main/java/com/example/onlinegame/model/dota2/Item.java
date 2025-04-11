@@ -44,4 +44,9 @@ public class Item {
 
     @ElementCollection
     private List<ItemAbility> abilities;
+
+    @Override
+    public String toString() {
+        return String.format("Item{name='%s', cost=%d}", dname, cost);
+    }
 }

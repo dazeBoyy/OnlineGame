@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -72,8 +73,18 @@ public class OpenDotaService {
                 throw new RuntimeException("No players found in match");
             }
 
-            // Выбираем случайного игрока
-            OpenDotaPlayer randomPlayer = match.getPlayers().get(random.nextInt(match.getPlayers().size()));
+            // Фильтруем только игроков с валидными данными
+            List<OpenDotaPlayer> validPlayers = match.getPlayers().stream()
+                    .filter(player -> player.getAccountId() != null && player.getPersonaname() != null)
+                    .collect(Collectors.toList());
+
+            if (validPlayers.isEmpty()) {
+                throw new RuntimeException("No valid players found in the match.");
+            }
+            // Выбираем случайного игрока из валидных
+            OpenDotaPlayer randomPlayer = validPlayers.get(new Random().nextInt(validPlayers.size()));
+
+            log.info("Selected player: {}", randomPlayer.getPersonaname());
 
             // Получаем предметы игрока (с проверкой на null)
             randomPlayer.setItems(Arrays.asList(
@@ -86,7 +97,7 @@ public class OpenDotaService {
             ));
 
             // Получаем предметы из рюкзака (с проверкой на null)
-            randomPlayer.setBackpack(Arrays.asList(
+            randomPlayer.setBackpacks(Arrays.asList(
                     Objects.requireNonNullElse(randomPlayer.getBackpack0(), 0),
                     Objects.requireNonNullElse(randomPlayer.getBackpack1(), 0),
                     Objects.requireNonNullElse(randomPlayer.getBackpack2(), 0)

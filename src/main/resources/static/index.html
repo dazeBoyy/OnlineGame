@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<meta charset="UTF-8">
+<html>
+<head>
+    <title>Dota 2 Guess Game</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+
+        .container {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        .game-info {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .inventory-items, .backpack-slots {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr); /* 3 items per row */
+            gap: 10px; /* Space between slots */
+            padding: 10px; /* Padding around the grid */
+            background-color: #2a2a2a; /* Optional background color */
+            border-radius: 8px; /* Rounded corners */
+        }
+
+        .item-card, .neutral-slot {
+            background-color: #1e1e1e; /* Background for each item slot */
+            border: 2px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .item-card img, .neutral-slot img {
+            max-width: 100%; /* Ensure the image fits */
+            max-height: 80px;
+            object-fit: contain;
+            margin-bottom: 10px;
+        }
+
+        .item-card:hover {
+            border-color: #4CAF50; /* Highlight on hover */
+            transform: scale(1.05); /* Slight zoom effect */
+        }
+
+        .neutral-item h4 {
+            margin-bottom: 10px;
+        }
+
+        .auth-section {
+            margin-bottom: 20px;
+            padding: 20px;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            background-color: #333333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #cccccc;
+        }
+        .heroes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+            padding: 16px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .hero-card {
+            background-color: #1e1e1e;
+            border: 2px solid #3a3a3a;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .hero-card:hover {
+            transform: translateY(-2px);
+            border-color: #4CAF50;
+        }
+
+        .hero-card.selected {
+            border-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+
+        .hero-image {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+
+        .hero-info {
+            padding: 12px;
+        }
+
+        .hero-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .hero-attrs {
+            font-size: 12px;
+            color: #aaaaaa;
+            margin-bottom: 4px;
+        }
+
+        .hero-roles {
+            font-size: 12px;
+            color: #888888;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #444444;
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #252525;
+            color: #ffffff;
+        }
+        .game-result {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .game-result.winner {
+            border: 2px solid #4CAF50;
+        }
+
+        .game-result.loser {
+            border: 2px solid #f44336;
+        }
+
+        .game-result h3 {
+            margin: 0 0 16px 0;
+        }
+
+        .game-result button {
+            margin-top: 16px;
+        }
+
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .error {
+            color: #ff4444;
+            margin-top: 5px;
+        }
+
+        .success {
+            color: #4CAF50;
+            margin-top: 5px;
+        }
+
+        #userInfo {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #333333;
+            border-radius: 4px;
+            display: none;
+        }
+
+        #logoutButton {
+            background-color: #f44336;
+        }
+
+        #logoutButton:hover {
+            background-color: #da190b;
+        }
+
+        .game-section {
+            margin-top: 20px;
+            padding: 20px;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            background-color: #333333;
+        }
+
+        .game-controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            flex-direction: column;
+        }
+
+        .game-button {
+            background-color: #2196F3;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            text-align: center;
+            transition: background-color 0.3s;
+        }
+
+        .game-button:hover {
+            background-color: #1976D2;
+        }
+
+        .cancel-button {
+            background-color: #f44336;
+        }
+
+        .hero-select-container {
+            position: relative;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .hero-select {
+            display: none; /* Скрываем оригинальный select */
+        }
+
+        .custom-select {
+            position: relative;
+            width: 100%;
+            background-color: #1e1e1e;
+            border: 2px solid #3a3a3a;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .custom-select.open {
+            border-color: #4CAF50;
+        }
+
+        .selected-hero {
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .dropdown-list {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background-color: #1e1e1e;
+            border: 2px solid #3a3a3a;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .hero-item {
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .hero-item:hover {
+            background-color: #2a2a2a;
+        }
+
+        .hero-icon {
+            width: 59px;
+            height: 33px;
+            object-fit: cover;
+        }
+
+        .hero-details {
+            flex: 1;
+        }
+
+        .hero-name {
+            font-size: 14px;
+            color: #ffffff;
+            margin-bottom: 4px;
+        }
+
+        .hero-meta {
+            font-size: 12px;
+            color: #888888;
+        }
+
+        .hero-attribute {
+            color: #4CAF50;
+            margin-right: 8px;
+        }
+
+        .hero-roles {
+            color: #666666;
+        }
+
+        /* Стилизация скроллбара */
+        .dropdown-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .dropdown-list::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        .dropdown-list::-webkit-scrollbar-thumb {
+            background: #3a3a3a;
+            border-radius: 4px;
+        }
+
+        .dropdown-list::-webkit-scrollbar-thumb:hover {
+            background: #4CAF50;
+        }
+
+        .cancel-button:hover {
+            background-color: #d32f2f;
+        }
+
+        .status-message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .status-waiting {
+            background-color: #332d00;
+            color: #ffd700;
+        }
+
+        .status-found {
+            background-color: #003300;
+            color: #4CAF50;
+        }
+
+        .status-error {
+            background-color: #330000;
+            color: #ff4444;
+        }
+
+        .hero-selection {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #2a2a2a;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+        }
+
+        .hero-selection select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #444444;
+            border-radius: 4px;
+            background-color: #252525;
+            color: #ffffff;
+        }
+
+        h2, h3, h4 {
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Dota 2 Guess Game</h2>
+
+    <div id="authForms">
+        <div class="auth-section">
+            <h3>Login</h3>
+            <div class="form-group">
+                <label for="loginUsername">Username:</label>
+                <input type="text" id="loginUsername" value="dazeBoyy" required>
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Password:</label>
+                <input type="password" id="loginPassword" required>
+            </div>
+            <button onclick="login()">Login</button>
+            <div id="loginMessage"></div>
+        </div>
+
+        <div class="auth-section">
+            <h3>Register</h3>
+            <div class="form-group">
+                <label for="registerUsername">Username:</label>
+                <input type="text" id="registerUsername" required>
+            </div>
+            <div class="form-group">
+                <label for="registerPassword">Password:</label>
+                <input type="password" id="registerPassword" required>
+            </div>
+            <button onclick="register()">Register</button>
+            <div id="registerMessage"></div>
+        </div>
+    </div>
+
+    <div id="userInfo">
+        <h3>User Information</h3>
+        <p id="username"></p>
+        <p id="roles"></p>
+        <p id="stats"></p>
+        <button id="logoutButton" onclick="logout()">Logout</button>
+    </div>
+
+    <div id="gameInterface" class="game-section" style="display: none;">
+        <h3>Game Interface</h3>
+        <div id="matchmakingStatus" class="status-message"></div>
+
+        <div class="game-controls">
+            <button id="findMatchButton" class="game-button" onclick="findMatch()">
+                Find Match
+            </button>
+            <button id="cancelMatchButton" class="game-button cancel-button"
+                    onclick="cancelMatch()" style="display: none;">
+                Cancel Search
+            </button>
+        </div>
+
+        <div id="gameSection" class="hero-selection" style="display: none;">
+            <div id="gameInfo" class="game-info">
+                <div class="inventory">
+                    <h4>Inventory</h4>
+                    <div class="inventory-items">
+                        <!-- Inventory items (6 slots) will be dynamically added here -->
+                    </div>
+                </div>
+                <div class="backpack">
+                    <h4>Backpack</h4>
+                    <div class="backpack-slots">
+                        <!-- Backpack items (3 slots) will be dynamically added here -->
+                    </div>
+                </div>
+                <div class="neutral-item">
+                    <h4>Neutral Item</h4>
+                    <div id="neutralItemSlot" class="item-card neutral-slot">
+                        <!-- Neutral item will be dynamically added here -->
+                    </div>
+                </div>
+            </div>
+            <div id="heroSelection">
+                <label for="heroSelect">Select Hero:</label>
+                <select id="heroSelect">
+                    <option value="">Loading heroes...</option>
+                </select>
+                <button class="game-button" onclick="makeGuess()">
+                    Make Guess
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:8080/api';
+    const WS_URL = 'http://localhost:8080';
+    let stompClient = null;
+    let currentGameSession = null;
+
+    document.addEventListener('DOMContentLoaded', checkAuth);
+
+    function checkAuth() {
+        const token = localStorage.getItem('jwt');
+        const user = JSON.parse(localStorage.getItem('user'));
+
+        if (token && user) {
+            showUserInfo(user);
+        }
+    }
+    let reconnectTimeout = null;
+
+    function handleDisconnect() {
+        console.log('WebSocket disconnected');
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+        }
+
+        const token = localStorage.getItem('jwt');
+        if (token) {
+            console.log('Attempting to reconnect...');
+            reconnectTimeout = setTimeout(connectWebSocket, 5000);
+        }
+    }
+
+
+    function connectWebSocket() {
+        const token = localStorage.getItem('jwt');
+        if (!token) {
+            console.error('No JWT token found');
+            return;
+        }
+
+        if (stompClient) {
+            try {
+                stompClient.disconnect();
+            } catch (e) {
+                console.error('Error disconnecting existing socket:', e);
+            }
+        }
+
+        const socket = new SockJS(`${WS_URL}/ws`);
+        stompClient = Stomp.over(socket);
+        stompClient.debug = null;
+
+        const headers = {
+            'Authorization': `Bearer ${token}`
+        };
+
+        stompClient.connect(headers, function(frame) {
+            console.log('Connected to WebSocket');
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            if (user) {
+                // Подписываемся на обновления матчмейкинга
+                stompClient.subscribe(`/topic/matchmaking/${user.id}`, function(message) {
+                    try {
+                        const update = JSON.parse(message.body);
+                        handleMatchmakingUpdate(update);
+                    } catch (error) {
+                        console.error('Error handling matchmaking update:', error);
+                    }
+                }, headers);
+
+                // Если есть активная игровая сессия, подписываемся на неё
+                if (currentGameSession && currentGameSession.roomId) {
+                    subscribeToGameUpdates(currentGameSession.roomId);
+                }
+            }
+        }, function(error) {
+            console.error('WebSocket connection error:', error);
+            setTimeout(connectWebSocket, 5000);
+        });
+    }
+
+
+
+    async function login() {
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+        const messageElement = document.getElementById('loginMessage');
+
+        try {
+            const response = await fetch(`${API_URL}/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.token) {
+                localStorage.setItem('jwt', data.token);
+                localStorage.setItem('refreshToken', data.refreshToken); // Сохраняем refresh token
+                localStorage.setItem('user', JSON.stringify(data.user));
+                messageElement.className = 'success';
+                messageElement.textContent = 'Login successful!';
+                showUserInfo(data.user);
+            } else {
+                messageElement.className = 'error';
+                messageElement.textContent = 'Invalid credentials';
+            }
+        } catch (error) {
+            messageElement.className = 'error';
+            messageElement.textContent = 'Error during login';
+            console.error('Login error:', error);
+        }
+    }
+
+    async function register() {
+        const username = document.getElementById('registerUsername').value;
+        const password = document.getElementById('registerPassword').value;
+        const messageElement = document.getElementById('registerMessage');
+
+        try {
+            const response = await fetch(`${API_URL}/auth/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.token) {
+                localStorage.setItem('jwt', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                messageElement.className = 'success';
+                messageElement.textContent = 'Registration successful!';
+                showUserInfo(data.user);
+            } else {
+                messageElement.className = 'error';
+                messageElement.textContent = data || 'Registration failed';
+            }
+        } catch (error) {
+            messageElement.className = 'error';
+            messageElement.textContent = 'Error during registration';
+            console.error('Registration error:', error);
+        }
+    }
+
+    function showUserInfo(user) {
+        document.getElementById('authForms').style.display = 'none';
+        document.getElementById('userInfo').style.display = 'block';
+        document.getElementById('gameInterface').style.display = 'block';
+        document.getElementById('findMatchButton').style.display = 'block';
+        document.getElementById('username').textContent = `Username: ${user.username}`;
+        document.getElementById('roles').textContent = `Roles: ${user.roles.join(', ')}`;
+        document.getElementById('stats').textContent =
+            `Stats: Wins - ${user.wins}, Losses - ${user.losses}`;
+
+        connectWebSocket();
+        checkAndRestoreSession();
+    }
+
+
+
+
+    function handleMatchmakingUpdate(update) {
+        try {
+            console.log('Received matchmaking update:', update);
+            const statusElement = document.getElementById('matchmakingStatus');
+
+            // Проверяем, содержится ли gameSession в update или сам update является сессией
+            const gameSession = update.gameSession || update;
+
+            // Если gameSession определен, обновляем currentGameSession
+            if (gameSession) {
+                currentGameSession = gameSession;
+            }
+
+            // Определяем статус из update или из gameSession
+            const status = update.status || (gameSession ? gameSession.status : null);
+
+            switch(status) {
+                case 'WAITING':
+                    statusElement.textContent = 'Searching for a match...';
+                    statusElement.className = 'status-message status-waiting';
+                    document.getElementById('findMatchButton').style.display = 'none';
+                    document.getElementById('cancelMatchButton').style.display = 'block';
+                    break;
+
+                case 'MATCH_FOUND':
+                case 'IN_PROGRESS':
+                    statusElement.textContent = 'Match found!';
+                    statusElement.className = 'status-message status-found';
+
+                    // Показываем игровые секции
+                    document.getElementById('findMatchButton').style.display = 'none';
+                    document.getElementById('cancelMatchButton').style.display = 'none';
+                    document.getElementById('gameSection').style.display = 'block';
+                    document.getElementById('gameInfo').style.display = 'block';
+
+                    // Загружаем информацию об игре, только если у нас есть данные сессии
+                    if (currentGameSession) {
+                        loadGameInfo(currentGameSession);
+                        subscribeToGameUpdates(currentGameSession.roomId);
+                    }
+                    break;
+
+                case 'CANCELLED':
+                    statusElement.textContent = '';
+                    statusElement.className = 'status-message';
+                    document.getElementById('findMatchButton').style.display = 'block';
+                    document.getElementById('cancelMatchButton').style.display = 'none';
+                    document.getElementById('gameSection').style.display = 'none';
+                    currentGameSession = null;
+                    break;
+
+                default:
+                    console.warn('Unknown status:', status);
+                    break;
+            }
+        } catch (error) {
+            console.error('Error in handleMatchmakingUpdate:', error);
+        }
+    }
+
+    async function loadGameInfo(gameSession) {
+        try {
+            const players = gameSession.sessionPlayers || [];
+            const items = gameSession.items || [];
+            const backpacks = gameSession.backpacks || [];
+            const neutralItem = gameSession.neutralItem || null;
+            console.log("Backpacks data:", gameSession);
+            // Display game session information
+            document.getElementById('gameInfo').innerHTML = `
+            <p>Room ID: ${gameSession.roomId || 'N/A'}</p>
+            <p>Players: ${players.map(p => p.username || 'Unknown').join(', ') || 'No players'}</p>
+            <p>Match ID: ${gameSession.matchId || 'N/A'}</p>
+            <div class="inventory">
+                <h4>Inventory</h4>
+                <div class="inventory-items"></div>
+            </div>
+            <div class="backpack">
+                <h4>Backpack</h4>
+                <div class="backpack-slots"></div>
+            </div>
+            <div class="neutral-item">
+                <h4>Neutral Item</h4>
+                <div id="neutralItemSlot" class="item-card neutral-slot"></div>
+            </div>
+        `;
+
+            // Populate inventory, backpack, and neutral item
+            await populateInventoryAndBackpack(items, backpacks, neutralItem);
+
+            // Load heroes into the dropdown (if needed)
+            await loadHeroes();
+
+        } catch (error) {
+            console.error('Error in loadGameInfo:', error);
+        }
+    }
+    function populateInventoryAndBackpack(items, backpacks, neutralItem) {
+        // Inventory items (6 slots)
+        const inventoryItemsContainer = document.querySelector('.inventory-items');
+        if (!inventoryItemsContainer) {
+            console.error("Error: .inventory-items container not found.");
+            return;
+        }
+        inventoryItemsContainer.innerHTML = ''; // Clear existing items
+
+        for (let i = 0; i < 6; i++) {
+            const item = items[i]; // Get item if available
+            const itemElement = document.createElement('div');
+            itemElement.className = 'item-card';
+
+            if (item) {
+                itemElement.innerHTML = `
+                <img src="${item.img}" alt="${item.dname}">
+            `;
+            } else {
+                // Empty slot placeholder
+                itemElement.innerHTML = `
+                <div class="empty-slot">Empty Slot</div>
+            `;
+            }
+
+            inventoryItemsContainer.appendChild(itemElement);
+        }
+
+        // Backpack items (3 slots)
+        const backpackContainer = document.querySelector('.backpack-slots');
+        if (!backpackContainer) {
+            console.error("Error: .backpack-slots container not found.");
+            return;
+        }
+        backpackContainer.innerHTML = '';
+
+        for (let i = 0; i < 3; i++) {
+            const backpack = backpacks[i]; // Get item if available
+            const backpackElement = document.createElement('div');
+            backpackElement.className = 'item-card';
+
+            if (backpack) {
+                backpackElement.innerHTML = `
+                <img src="${backpack.img}" alt="${backpack.dname}">
+
+            `;
+            } else {
+                // Empty slot placeholder
+                backpackElement.innerHTML = `
+                <div class="empty-slot">Empty Slot</div>
+            `;
+            }
+
+            backpackContainer.appendChild(backpackElement);
+        }
+
+        // Neutral item
+        const neutralItemSlot = document.getElementById('neutralItemSlot');
+        if (neutralItemSlot) {
+            neutralItemSlot.innerHTML = neutralItem
+                ? `
+                <img src="${neutralItem.img}" alt="${neutralItem.dname}">
+                <div class="item-info">
+                    <div class="item-name">${neutralItem.dname}</div>
+                    <div class="item-cost">${neutralItem.cost || 'N/A'} gold</div>
+                </div>
+            `
+                : '<p>No Neutral Item</p>';
+        }
+    }
+
+
+    async function loadHeroes() {
+        try {
+            const response = await authenticatedFetch(`${API_URL}/heroes`);
+            const heroes = await response.json();
+
+            // Создаем новый select элемент
+            const heroSelectContainer = document.createElement('div');
+            heroSelectContainer.className = 'hero-select-container';
+
+            const selectElement = document.createElement('select');
+            selectElement.id = 'heroSelect';
+            selectElement.className = 'hero-select';
+
+            // Добавляем placeholder опцию
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.textContent = 'Выберите героя';
+            placeholderOption.disabled = true;
+            placeholderOption.selected = true;
+            selectElement.appendChild(placeholderOption);
+
+            // Добавляем героев в select
+            heroes.forEach(hero => {
+                const option = document.createElement('option');
+                option.value = hero.heroId;
+                option.dataset.image = `${hero.image}`;
+                option.dataset.fullName = hero.name;
+                option.dataset.attributes = hero.primaryAttribute;
+                option.dataset.roles = hero.roles.join(', ');
+                option.textContent = hero.name;
+                selectElement.appendChild(option);
+            });
+
+            // Создаем кастомный селект
+            const customSelect = document.createElement('div');
+            customSelect.className = 'custom-select';
+
+            const selectedHero = document.createElement('div');
+            selectedHero.className = 'selected-hero';
+            selectedHero.innerHTML = '<span>Выберите героя</span>';
+
+            const dropdownList = document.createElement('div');
+            dropdownList.className = 'dropdown-list';
+
+            heroes.forEach(hero => {
+                const heroItem = document.createElement('div');
+                heroItem.className = 'hero-item';
+                heroItem.dataset.value = hero.heroId;
+                heroItem.innerHTML = `
+                <img src="${hero.image}"
+                     alt="${hero.name}" class="hero-icon">
+                <div class="hero-details">
+                    <div class="hero-name">${hero.name}</div>
+                    <div class="hero-meta">
+                        <span class="hero-attribute">${hero.primaryAttribute}</span>
+                        <span class="hero-roles">${hero.roles.join(', ')}</span>
+                    </div>
+                </div>
+            `;
+
+                heroItem.addEventListener('click', () => {
+                    selectElement.value = hero.heroId;
+                    selectedHero.innerHTML = heroItem.innerHTML;
+                    dropdownList.style.display = 'none';
+                    customSelect.classList.remove('open');
+                });
+
+                dropdownList.appendChild(heroItem);
+            });
+
+            selectedHero.addEventListener('click', () => {
+                dropdownList.style.display = dropdownList.style.display === 'none' ? 'block' : 'none';
+                customSelect.classList.toggle('open');
+            });
+
+            // Закрывать дропдаун при клике вне его
+            document.addEventListener('click', (e) => {
+                if (!customSelect.contains(e.target)) {
+                    dropdownList.style.display = 'none';
+                    customSelect.classList.remove('open');
+                }
+            });
+
+            customSelect.appendChild(selectedHero);
+            customSelect.appendChild(dropdownList);
+
+            // Добавляем оригинальный select (скрытый) и кастомный select в контейнер
+            heroSelectContainer.appendChild(selectElement);
+            heroSelectContainer.appendChild(customSelect);
+
+            // Находим старый select и заменяем его на новый контейнер
+            const oldSelect = document.getElementById('heroSelect');
+            oldSelect.parentNode.replaceChild(heroSelectContainer, oldSelect);
+
+        } catch (error) {
+            console.error('Error loading heroes:', error);
+        }
+    }
+
+    async function findMatch() {
+        const user = JSON.parse(localStorage.getItem('user'));
+        if (!user) {
+            console.error('User not authenticated');
+            return;
+        }
+
+        try {
+            const response = await authenticatedFetch(`${API_URL}/matchmaking/find`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: user.id.toString()
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to start matchmaking');
+            }
+        } catch (error) {
+            console.error('Error finding match:', error);
+            const statusElement = document.getElementById('matchmakingStatus');
+            statusElement.textContent = 'Error starting matchmaking';
+            statusElement.className = 'status-message status-error';
+        }
+    }
+
+    async function cancelMatch() {
+        const user = JSON.parse(localStorage.getItem('user'));
+        if (!user) return;
+
+        try {
+            await authenticatedFetch(`${API_URL}/matchmaking/cancel`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: user.id.toString()
+                })
+            });
+        } catch (error) {
+            console.error('Error cancelling match:', error);
+        }
+    }
+    function checkAndRestoreSession() {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const token = localStorage.getItem('jwt');
+
+        if (user && token) {
+            // Проверяем наличие активной сессии
+            authenticatedFetch(`${API_URL}/matchmaking/current-session/${user.id}`)
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error('No active session');
+                })
+                .then(session => {
+                    if (session) {
+                        currentGameSession = session;
+                        handleMatchmakingUpdate({
+                            status: session.status,
+                            gameSession: session
+                        });
+
+                        // Переподключаемся к WebSocket если есть активная игра
+                        if (session.status === 'IN_PROGRESS') {
+                            connectWebSocket();
+                            subscribeToGameUpdates(session.roomId);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.log('No active session found:', error);
+                });
+        }
+    }
+
+    function subscribeToGameUpdates(roomId) {
+        if (stompClient) {
+            const token = localStorage.getItem('jwt');
+            const headers = {
+                'Authorization': `Bearer ${token}`
+            };
+
+            const destination = `/topic/game/${roomId}`;
+            console.log('Subscribing to:', destination);
+
+            stompClient.subscribe(destination, function(message) {
+                try {
+                    const gameUpdate = JSON.parse(message.body);
+                    handleGameUpdate(gameUpdate);
+                } catch (error) {
+                    console.error('Error handling game update:', error);
+                }
+            }, headers);
+        }
+    }
+
+    function handleGameUpdate(gameUpdate) {
+        // Обновляем только изменившиеся поля в текущей сессии
+        currentGameSession = {
+            ...currentGameSession, // Сохраняем старые данные
+            ...gameUpdate         // Обновляем новыми данными
+        };
+
+        // Обновляем интерфейс
+        const statusElement = document.getElementById('matchmakingStatus');
+
+        if (currentGameSession.status === 'COMPLETED') {
+            // Обновляем статус и показываем результаты
+            statusElement.textContent = 'Game completed!';
+            statusElement.className = 'status-message status-found';
+
+            const user = JSON.parse(localStorage.getItem('user'));
+            const isWinner = currentGameSession.winnerId === user.id;
+
+            // Показываем результат игры
+            showGameResult(currentGameSession, isWinner);
+
+            // Сбрасываем текущую сессию
+            currentGameSession = null;
+
+            // Скрываем игровой интерфейс
+            document.getElementById('gameSection').style.display = 'none';
+            document.getElementById('findMatchButton').style.display = 'block';
+
+            // Отписываемся от обновлений для этой комнаты
+            if (stompClient) {
+                stompClient.unsubscribe(`/topic/game/${gameUpdate.roomId}`);
+            }
+        } else {
+        }
+    }
+
+    function showGameResult(gameUpdate, isWinner) {
+        const resultElement = document.createElement('div');
+        resultElement.className = `game-result ${isWinner ? 'winner' : 'loser'}`;
+        resultElement.innerHTML = `
+        <h3>${isWinner ? 'Victory!' : 'Defeat'}</h3>
+        ${gameUpdate.heroName ? `<p>Correct Hero: ${gameUpdate.heroName}</p>` : ''}
+        <button onclick="this.parentElement.remove()" class="game-button">OK</button>
+    `;
+
+        document.body.appendChild(resultElement);
+    }
+
+    async function makeGuess() {
+        if (!currentGameSession) {
+            console.error('No active game session');
+            return;
+        }
+
+        const user = JSON.parse(localStorage.getItem('user'));
+        const heroSelect = document.getElementById('heroSelect');
+        const selectedHeroId = heroSelect.value;
+
+        if (!user || !selectedHeroId) {
+            console.error('Missing user or hero selection');
+            return;
+        }
+
+        try {
+            const payload = {
+                roomId: currentGameSession.roomId,
+                userId: user.id,
+                heroId: parseInt(selectedHeroId)
+            };
+            console.log('Sending guess:', payload);
+
+            stompClient.send("/app/game/guess", {}, JSON.stringify(payload));
+        } catch (error) {
+            console.error('Error making guess:', error);
+        }
+    }
+
+    function logout() {
+        if (stompClient) {
+            try {
+                stompClient.disconnect(() => {
+                    console.log('WebSocket disconnected');
+                });
+            } catch (error) {
+                console.error('Error disconnecting WebSocket:', error);
+            }
+            stompClient = null;
+        }
+        localStorage.removeItem('jwt');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        document.getElementById('authForms').style.display = 'block';
+        document.getElementById('userInfo').style.display = 'none';
+        document.getElementById('gameInterface').style.display = 'none';
+        document.getElementById('loginUsername').value = '';
+        document.getElementById('loginPassword').value = '';
+        document.getElementById('registerUsername').value = '';
+        document.getElementById('registerPassword').value = '';
+        document.getElementById('loginMessage').textContent = '';
+        document.getElementById('registerMessage').textContent = '';
+    }
+
+    async function refreshToken() {
+        try {
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (!refreshToken) {
+                throw new Error('No refresh token available');
+            }
+
+            const response = await fetch(`${API_URL}/auth/refresh`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ refreshToken })
+            });
+
+            if (!response.ok) {
+                throw new Error('Token refresh failed');
+            }
+
+            const data = await response.json();
+            localStorage.setItem('jwt', data.token);
+            return data.token;
+        } catch (error) {
+            console.error('Error refreshing token:', error);
+            // При ошибке обновления токена, выходим из системы
+            logout();
+            throw error;
+        }
+    }
+
+
+    async function authenticatedFetch(url, options = {}) {
+        let token = localStorage.getItem('jwt');
+
+        // Первая попытка с текущим токеном
+        if (token) {
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${token}`
+            };
+
+            try {
+                const response = await fetch(url, options);
+
+                // Если получаем 401, пробуем обновить токен
+                if (response.status === 401) {
+                    token = await refreshToken();
+
+                    // Повторяем запрос с новым токеном
+                    options.headers = {
+                        ...options.headers,
+                        'Authorization': `Bearer ${token}`
+                    };
+                    return fetch(url, options);
+                }
+
+                return response;
+            } catch (error) {
+                console.error('Error in authenticatedFetch:', error);
+                throw error;
+            }
+        }
+
+        return fetch(url, options);
+    }
+</script>
+</body>
+</html>

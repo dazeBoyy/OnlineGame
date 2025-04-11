@@ -1,6 +1,7 @@
 package com.example.onlinegame.security;
 
 
+import com.example.onlinegame.model.user.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -12,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
 
-
 @CommonsLog
 @Component
 public class JwtUtil {
@@ -23,22 +23,25 @@ public class JwtUtil {
     @Value("${jwt.expiration}")
     private long expiration;
 
+
     private SecretKey getSecretKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateToken(String username, List<String> roles) {
+    public String generateToken(User user, List<String> roles) {
         return Jwts.builder()
-                .setSubject(username) // Устанавливаем имя пользователя
+                .setSubject(user.getId().toString()) // Используем ID как subject
+                .claim("username", user.getUsername()) // Добавляем username как claim
                 .claim("roles", roles) // Добавляем роли в токен
+                .claim("user_id", user.getId()) // Явно добавляем ID
                 .setIssuedAt(new Date()) // Устанавливаем время создания токена
-                .setExpiration(new Date(System.currentTimeMillis() + expiration)) // Устанавливаем срок действия токена
-                .signWith(getSecretKey()) // Подписываем токен
-                .compact(); // Генерируем токен
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .signWith(getSecretKey())
+                .compact();
     }
-
     public boolean validateToken(String token) {
         try {
+
             Jwts.parserBuilder()
                     .setSigningKey(getSecretKey())
                     .build()
@@ -49,6 +52,7 @@ public class JwtUtil {
             return false;
         }
     }
+
     public List<String> getRolesFromToken(String token) {
         Claims claims = Jwts.parserBuilder()
                 .setSigningKey(getSecretKey())
@@ -60,11 +64,20 @@ public class JwtUtil {
     }
 
     public String getUsernameFromToken(String token) {
-        return Jwts.parserBuilder()
+        Claims claims = Jwts.parserBuilder()
                 .setSigningKey(getSecretKey())
                 .build()
                 .parseClaimsJws(token)
-                .getBody()
-                .getSubject();
+                .getBody();
+        return claims.get("username", String.class);
+    }
+
+    public Long getUserIdFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSecretKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        return Long.parseLong(claims.getSubject());
     }
 }

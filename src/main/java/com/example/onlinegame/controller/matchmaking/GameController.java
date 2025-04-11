@@ -1,32 +1,44 @@
 package com.example.onlinegame.controller.matchmaking;
 
+import com.example.onlinegame.dto.session.GameSessionDTO;
+import com.example.onlinegame.dto.session.PlayerDTO;
 import com.example.onlinegame.model.matchmaking.GameSession;
 
+import com.example.onlinegame.model.matchmaking.RedisGameSession;
+import com.example.onlinegame.repo.matchmaking.GameSessionRedisRepository;
 import com.example.onlinegame.service.matchmaking.GameService;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/game")
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class GameController {
-
-
-    private GameService gameService;
-
-    @PostMapping("/create")
-    public String createGame() {
-        GameSession session = gameService.createGameSession();
-        return session.getRoomId();
-    }
-
-    @PostMapping("/{roomId}/vote")
-    public void vote(@PathVariable String roomId, @RequestParam String userId, @RequestParam Integer heroId) {
-        gameService.vote(roomId, userId, heroId);
-    }
+    private final GameService gameService;
+    private final GameSessionRedisRepository redisRepository;
 
     @GetMapping("/{roomId}")
-    public GameSession getSession(@PathVariable String roomId) {
-        return gameService.getSession(roomId);
+    public ResponseEntity<GameSessionDTO> getSession(@PathVariable String roomId) {
+        // Сначала проверяем в Redis
+        Optional<RedisGameSession> redisSession = redisRepository.findSession(roomId);
+        if (redisSession.isPresent()) {
+            return ResponseEntity.ok(gameService.toDTO(gameService.getSession(roomId)));
+        }
+
+        // Если нет в Redis, ищем в БД
+        try {
+            GameSession session = gameService.getSession(roomId);
+            // Кешируем в Redis для будущих запросов
+            redisRepository.saveSession(RedisGameSession.fromGameSession(session));
+            return ResponseEntity.ok(gameService.toDTO(session));
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
     }
+
 }

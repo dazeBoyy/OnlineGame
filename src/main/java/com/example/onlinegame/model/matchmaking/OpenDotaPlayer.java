@@ -48,8 +48,11 @@ public class OpenDotaPlayer {
     @JsonProperty("item_neutral")
     private Integer itemNeutral;
 
+    @JsonProperty("personaname")
+    private String personaname;
+
     // Списки для удобства
     private List<Integer> items;
-    private List<Integer> backpack;
+    private List<Integer> backpacks;
     private Integer neutralItem;
 }

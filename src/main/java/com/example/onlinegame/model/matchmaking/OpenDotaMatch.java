@@ -11,5 +11,6 @@ import java.util.List;
 public class OpenDotaMatch {
     @JsonProperty("match_id")
     private Long matchId;
+    @JsonProperty("players")
     private List<OpenDotaPlayer> players;
 }
