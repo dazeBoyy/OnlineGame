@@ -181,6 +181,34 @@ public class GameSessionRedisRepository {
                 .build();
     }
 
+    public GameSessionDTO convertToGameSessionFromRedisDTO(RedisGameSession redisSession) {
+        return GameSessionDTO.builder()
+                .roomId(redisSession.getRoomId()) // ID комнаты
+                .matchId(String.valueOf(redisSession.getMatchId())) // ID матча
+                .status(redisSession.getStatus()) // Статус сессии
+                .players(redisSession.getPlayerIds().stream()
+                        .map(playerId -> PlayerDTO.builder()
+                                .id(playerId) // Только ID игрока
+                                .build())
+                        .collect(Collectors.toList()))
+                .items(redisSession.getItemIds().stream()
+                        .map(itemId -> ItemDTO.builder()
+                                .id(itemId) // Только ID предмета
+                                .build())
+                        .collect(Collectors.toList()))
+                .backpacks(redisSession.getBackpackIds().stream()
+                        .map(itemId -> ItemDTO.builder()
+                                .id(itemId) // Только ID предмета
+                                .build())
+                        .collect(Collectors.toList()))
+                .neutralItem(redisSession.getNeutralItemId() != null ?
+                        ItemDTO.builder()
+                                .id(redisSession.getNeutralItemId()) // Только ID нейтрального предмета
+                                .build()
+                        : null)
+                .build();
+    }
+
 
 
 

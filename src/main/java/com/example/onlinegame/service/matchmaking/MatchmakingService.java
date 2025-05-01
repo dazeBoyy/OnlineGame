@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
@@ -30,47 +31,52 @@ public class MatchmakingService {
     private final SimpMessagingTemplate messagingTemplate;
     private final UserRepository userRepository;
 
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public GameSessionDTO findMatch(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // 1. Проверяем существующую сессию в Redis
+        // 1. Проверяем сессию в Redis
         Optional<RedisGameSession> existingRedisSession = redisRepository.findPlayerSession(userId);
         if (existingRedisSession.isPresent()) {
             RedisGameSession redisSession = existingRedisSession.get();
-            Optional<GameSession> existingSession = gameSessionRepository.findByRoomId(redisSession.getSessionId());
 
-            if (existingSession.isPresent()) {
-                GameSession session = existingSession.get();
+            // Конвертируем данные из Redis в DTO
+            GameSessionDTO sessionDTO = redisRepository.convertToGameSessionFromRedisDTO(redisSession);
 
-                // 2. Если сессия активна (не COMPLETED и не CANCELLED), конвертируем её в DTO
-                if (session.getStatus() != GameStatus.COMPLETED &&
-                        session.getStatus() != GameStatus.CANCELLED) {
-                    return convertToGameSessionDTO(session);
-                }
-
-                // 3. Если сессия завершена или отменена, удаляем её из Redis
-                redisRepository.removeSession(session.getRoomId());
+            // Возвращаем сессию, если она активна
+            if (sessionDTO.getStatus() != GameStatus.COMPLETED &&
+                    sessionDTO.getStatus() != GameStatus.CANCELLED) {
+                return sessionDTO;
             }
+
+            // Если сессия завершена или отменена, удаляем её из Redis
+            redisRepository.removeSession(redisSession.getSessionId());
         }
 
-        // 4. Если нет активной сессии, ищем доступную или создаём новую
-        Optional<GameSession> availableSession = gameSessionRepository.findByStatusAndSessionPlayersSizeLessThan(
+        // 2. Проверяем доступную сессию в базе данных
+        Optional<GameSession> existingSession = gameSessionRepository.findByStatusAndSessionPlayersSizeLessThan(
                         GameStatus.WAITING, 2)
                 .filter(session -> !session.hasPlayer(userId));
 
-        if (availableSession.isPresent()) {
-            return joinExistingSession(user, availableSession.get());
-        } else {
-            return createNewSession(user);
+        if (existingSession.isPresent()) {
+            return joinExistingSession(user, existingSession.get());
         }
+
+        // 3. Создаём новую сессию
+        return createNewSession(user);
     }
 
 
 
     @Transactional
     protected GameSessionDTO createNewSession(User user) {
+        Optional<RedisGameSession> redisSessionOpt = redisRepository.findPlayerSession(user.getId());
+        if (redisSessionOpt.isPresent()) {
+            RedisGameSession redisSession = redisSessionOpt.get();
+            return redisRepository.convertToGameSessionFromRedisDTO(redisSession);
+        }
+
         GameSession session = gameService.createGameSession();
         session.setStatus(GameStatus.WAITING); // Устанавливаем начальный статус
         session.addPlayer(user);
@@ -95,42 +101,46 @@ public class MatchmakingService {
     }
 
 
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     protected GameSessionDTO joinExistingSession(User user, GameSession session) {
-        if (!session.hasPlayer(user.getId())) {
-            session.addPlayer(user);
-
-            // Проверяем и обновляем статус игры
-            updateSessionStatus(session);
-
-            session = gameSessionRepository.save(session);
-
-            // Обновляем в Redis
-            redisRepository.saveSession(RedisGameSession.fromGameSession(session));
-
-            // Конвертируем в DTO
-            GameSessionDTO sessionDTO = convertToGameSessionDTO(session);
-
-            // Отправляем уведомление всем игрокам
-            GameSession finalSession = session;
-            session.getSessionPlayers().forEach(player -> {
-                String status = finalSession.getStatus() == GameStatus.IN_PROGRESS ?
-                        "IN_PROGRESS" : "WAITING";
-                messagingTemplate.convertAndSend("/topic/matchmaking/" + player.getId(),
-                        Map.of(
-                                "status", status,
-                                "gameSession", sessionDTO
-                        ));
-            });
-
-            // Если игра началась, отправляем дополнительное уведомление
-            if (session.getStatus() == GameStatus.IN_PROGRESS) {
-                messagingTemplate.convertAndSend("/topic/game/" + session.getRoomId(), sessionDTO);
-            }
-
-            return sessionDTO;
+        // Проверяем, если пользователь уже в сессии, выбрасываем исключение
+        if (session.hasPlayer(user.getId())) {
+            throw new IllegalStateException("User is already part of the session");
         }
-        return convertToGameSessionDTO(session);
+
+        // Добавляем пользователя в сессию
+        session.addPlayer(user);
+
+        // Проверяем и обновляем статус игры
+        updateSessionStatus(session);
+
+        // Сохраняем изменения в базе данных
+        session = gameSessionRepository.save(session);
+
+        // Обновляем сессию в Redis
+        redisRepository.saveSession(RedisGameSession.fromGameSession(session));
+
+        // Конвертируем сессию в DTO
+        GameSessionDTO sessionDTO = convertToGameSessionDTO(session);
+
+        // Отправляем уведомление всем игрокам
+        GameSession finalSession = session;
+        session.getSessionPlayers().forEach(player -> {
+            String status = finalSession.getStatus() == GameStatus.IN_PROGRESS ?
+                    "IN_PROGRESS" : "WAITING";
+            messagingTemplate.convertAndSend("/topic/matchmaking/" + player.getId(),
+                    Map.of(
+                            "status", status,
+                            "gameSession", sessionDTO
+                    ));
+        });
+
+        // Если игра началась, отправляем дополнительное уведомление
+        if (session.getStatus() == GameStatus.IN_PROGRESS) {
+            messagingTemplate.convertAndSend("/topic/game/" + session.getRoomId(), sessionDTO);
+        }
+
+        return sessionDTO;
     }
 
     @Transactional
