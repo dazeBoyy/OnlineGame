@@ -38,24 +38,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = authHeader.substring(7);
 
             if (jwtUtil.validateToken(jwt)) {
-                String username = jwtUtil.getUsernameFromToken(jwt);
                 Long userId = jwtUtil.getUserIdFromToken(jwt);
-                List<String> roles = jwtUtil.getRolesFromToken(jwt);
+                if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                    User user = userRepository.findById(userId).orElse(null);
 
-                // Преобразуем роли в GrantedAuthority
-                List<GrantedAuthority> authorities = roles.stream()
-                        .map(SimpleGrantedAuthority::new)
-                        .collect(Collectors.toList());
+                    if (user != null) {
+                        UserPrincipal userPrincipal = new UserPrincipal(user);
 
-                // Создаем Principal с дополнительной информацией
-                User user = userRepository.findById(userId).orElse(null);
+                        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                                userPrincipal, null, userPrincipal.getAuthorities()
+                        );
+                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-                // Устанавливаем аутентификацию в контекст Spring Security
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                        user, null, authorities
-                );
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                    }
+                }
             }
         }
 

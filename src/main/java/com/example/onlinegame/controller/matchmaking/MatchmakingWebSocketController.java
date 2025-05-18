@@ -1,34 +1,34 @@
 package com.example.onlinegame.controller.matchmaking;
 
-import com.example.onlinegame.dto.session.GameSessionDTO;
-import com.example.onlinegame.dto.session.PlayerDTO;
-import com.example.onlinegame.model.matchmaking.GameSession;
+import com.example.onlinegame.security.UserPrincipal;
 import com.example.onlinegame.service.matchmaking.MatchmakingService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import java.security.Principal;
 
 @Controller
 @RequiredArgsConstructor
+@Slf4j
 public class MatchmakingWebSocketController {
     private final MatchmakingService matchmakingService;
 
     @MessageMapping("/matchmaking/find")
-    @SendTo("/topic/matchmaking/{userId}")
-    public GameSessionDTO findMatch(Long userId) {
-        GameSessionDTO session = matchmakingService.findMatch(userId);
-        return session;
+    public void joinMatchmaking(@AuthenticationPrincipal UserPrincipal principal) {
+        log.info("Пользователь с именем: {}", principal.getUsername() + " начал поиск!");
+
+        matchmakingService.findMatch(principal.getUserId());
     }
 
     @MessageMapping("/matchmaking/cancel")
-    @SendTo("/topic/matchmaking/{userId}")
-    public Map<String, String> cancelMatchmaking(Long userId) {
-        matchmakingService.cancelMatchmaking(userId);
-        return Map.of("status", "CANCELLED");
+    public void cancelMatchmaking(@AuthenticationPrincipal UserPrincipal principal) {
+        log.info("Пользователь с именем: {}", principal.getUsername() + " отменил поиск!");
+        matchmakingService.cancelMatchmaking(principal.getUserId());
+
     }
 }

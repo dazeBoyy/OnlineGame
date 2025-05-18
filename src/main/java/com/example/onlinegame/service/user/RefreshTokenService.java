@@ -1,9 +1,10 @@
-package com.example.onlinegame.security;
+package com.example.onlinegame.service.user;
 
 import com.example.onlinegame.model.user.RefreshToken;
 import com.example.onlinegame.model.user.User;
 import com.example.onlinegame.repo.user.RefreshTokenRepository;
 import com.example.onlinegame.repo.user.UserRepository;
+import com.example.onlinegame.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -52,8 +53,9 @@ public class RefreshTokenService {
             refreshTokenRepository.save(refreshToken);
         });
     }
-    public Optional<RefreshToken> findActiveRefreshTokenByUser(User user) {
-        return refreshTokenRepository.findByUserAndIsActiveTrue(user);
+    public Optional<RefreshToken> findActiveRefreshTokenByUser(Long user) {
+        return refreshTokenRepository.findByUserIdAndIsActiveTrue(user);
     }
+
 
 }

@@ -1,212 +1,277 @@
 package com.example.onlinegame.repo.matchmaking;
 
-import com.example.onlinegame.dto.session.GameSessionDTO;
-import com.example.onlinegame.dto.session.ItemDTO;
-import com.example.onlinegame.dto.session.PlayerDTO;
+import com.example.onlinegame.exception.RedisOperationException;
+import com.example.onlinegame.model.matchmaking.status.GameStatus;
 import com.example.onlinegame.model.matchmaking.RedisGameSession;
-import com.example.onlinegame.model.matchmaking.GameStatus;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+
 @Repository
-@Slf4j
 @RequiredArgsConstructor
+@Slf4j
 public class GameSessionRedisRepository {
     private final RedisTemplate<String, Object> redisTemplate;
 
-    private static final String SESSION_KEY = "game:session:";
-    private static final String WAITING_PLAYERS_KEY = "game:waiting:players";
-    private static final String ACTIVE_SESSIONS_KEY = "game:active:sessions";
-    private static final String PLAYER_SESSION_KEY = "game:player:";
-    private static final long SESSION_TTL = 2; // hours
+    // Keys
+    private static final String MATCHMAKING_QUEUE = "matchmaking:queue";
+    private static final String SESSION_KEY = "sessions:session:";
+    private static final String ROUND_TIMER_KEY = "game:round_timer:";
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public void saveSession(RedisGameSession session) {
-        String key = SESSION_KEY + session.getSessionId();
-        redisTemplate.opsForHash().putAll(key, convertToMap(session));
-
-        // Сохраняем связи игрок -> сессия
-        session.getPlayerIds().forEach(playerId -> {
-            redisTemplate.opsForValue().set(
-                    PLAYER_SESSION_KEY + playerId,
-                    session.getSessionId(),
-                    SESSION_TTL,
-                    TimeUnit.HOURS
-            );
-        });
-
-        // Управление списками активных и ожидающих сессий
-        if (session.getStatus() == GameStatus.WAITING) {
-            redisTemplate.opsForSet().add(WAITING_PLAYERS_KEY, session.getSessionId());
-            redisTemplate.opsForSet().remove(ACTIVE_SESSIONS_KEY, session.getSessionId());
-        } else if (session.getStatus() == GameStatus.IN_PROGRESS) {
-            redisTemplate.opsForSet().remove(WAITING_PLAYERS_KEY, session.getSessionId());
-            redisTemplate.opsForSet().add(ACTIVE_SESSIONS_KEY, session.getSessionId());
-        } else {
-            // Для завершенных сессий удаляем из обоих списков
-            redisTemplate.opsForSet().remove(WAITING_PLAYERS_KEY, session.getSessionId());
-            redisTemplate.opsForSet().remove(ACTIVE_SESSIONS_KEY, session.getSessionId());
+    public void addToQueue(Long userId) {
+        // Проверяем, что пользователя еще нет в очереди
+        Long count = redisTemplate.opsForList().remove(MATCHMAKING_QUEUE, 1, userId);
+        if (count != null && count > 0) {
+            log.warn("Пользователь {} уже был в очереди и был удален перед повторным добавлением", userId);
         }
 
-        redisTemplate.expire(key, SESSION_TTL, TimeUnit.HOURS);
+        redisTemplate.opsForList().rightPush(MATCHMAKING_QUEUE, userId);
+        log.info("Игрок {} добавлен в очередь", userId);
     }
 
-    public Optional<RedisGameSession> findPlayerSession(Long playerId) {
-        String sessionId = (String) redisTemplate.opsForValue().get(PLAYER_SESSION_KEY + playerId);
-        if (sessionId == null) {
-            return Optional.empty();
-        }
-        return findSession(sessionId);
-    }
-
-
-    public Optional<RedisGameSession> findSession(String sessionId) {
-        String key = SESSION_KEY + sessionId;
-        Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
-        if (data.isEmpty()) {
-            return Optional.empty();
-        }
+    public List<Long> pollTwoPlayers() {
         try {
-            RedisGameSession session = convertFromMap(data);
+            List<Object> players = redisTemplate.opsForList().range(MATCHMAKING_QUEUE, 0, 1);
+            if (players == null || players.size() < 2) {
+                log.debug("Not enough players in queue (found: {})", players != null ? players.size() : 0);
+                return List.of();
+            }
+
+            List<Long> result = players.stream()
+                    .map(obj -> Long.valueOf(obj.toString()))
+                    .collect(Collectors.toList());
+
+            log.info("Polled 2 players from queue: {}", result);
+            return result;
+        } catch (Exception e) {
+            log.error("Failed to poll players from queue", e);
+            throw e;
+        }
+    }
+
+    // Сохранение сессии в Redis
+    public void saveSession(RedisGameSession session) {
+        try {
+            String sessionKey = SESSION_KEY + session.getRoomId();
+            Map<String, String> sessionMap = convertToMap(session);
+            redisTemplate.opsForHash().putAll(sessionKey, sessionMap);
+            log.debug("Session {} saved successfully", session.getRoomId());
+        } catch (Exception e) {
+            log.error("Failed to save session {}", session.getRoomId(), e);
+            throw e;
+        }
+    }
+
+    public Optional<RedisGameSession> findSession(String roomId) {
+        try {
+            String key = SESSION_KEY + roomId;
+            Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
+            if (data.isEmpty()) {
+                log.debug("Session {} not found in Redis", roomId);
+                return Optional.empty();
+            }
+
+            Map<String, String> stringData = data.entrySet().stream()
+                    .collect(Collectors.toMap(
+                            e -> String.valueOf(e.getKey()),
+                            e -> String.valueOf(e.getValue())
+                    ));
+
+            RedisGameSession session = convertFromMap(stringData);
+            log.debug("Session {} found and converted successfully", roomId);
             return Optional.of(session);
         } catch (Exception e) {
-            log.error("Error converting session data for sessionId: {}", sessionId, e);
+            log.error("Error converting session data for sessionId: {}", roomId, e);
             return Optional.empty();
         }
     }
 
-    public void removeSession(String sessionId) {
-        RedisGameSession session = findSession(sessionId).orElse(null);
-        if (session != null) {
-            // Удаляем связи игрок -> сессия
-            session.getPlayerIds().forEach(playerId ->
-                    redisTemplate.delete(PLAYER_SESSION_KEY + playerId));
+    public boolean isUserInQueue(Long userId) {
+        Long position = redisTemplate.opsForList().indexOf(MATCHMAKING_QUEUE, userId);
+        return position != null && position >= 0;
+    }
+
+
+    public Optional<RedisGameSession> findPlayerSession(Long userId) {
+        try {
+            Set<String> sessionKeys = redisTemplate.keys(SESSION_KEY + "*");
+            if (sessionKeys == null || sessionKeys.isEmpty()) {
+                log.debug("No active sessions found for player {}", userId);
+                return Optional.empty();
+            }
+
+            Optional<RedisGameSession> result = sessionKeys.stream()
+                    .map(key -> {
+                        try {
+                            Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
+                            Map<String, String> stringData = data.entrySet().stream()
+                                    .collect(Collectors.toMap(
+                                            e -> String.valueOf(e.getKey()),
+                                            e -> String.valueOf(e.getValue())
+                                    ));
+                            return convertFromMap(stringData);
+                        } catch (Exception e) {
+                            log.error("Error processing session with key {}", key, e);
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .filter(session -> session.getPlayerIds().contains(userId))
+                    .findFirst();
+
+            if (result.isPresent()) {
+                log.debug("Found session for player {}: {}", userId, result.get().getRoomId());
+            } else {
+                log.debug("No session found for player {}", userId);
+            }
+
+            return result;
+        } catch (Exception e) {
+            log.error("Error finding session for player {}", userId, e);
+            return Optional.empty();
         }
-
-        String key = SESSION_KEY + sessionId;
-        redisTemplate.delete(key);
-        redisTemplate.opsForSet().remove(WAITING_PLAYERS_KEY, sessionId);
-        redisTemplate.opsForSet().remove(ACTIVE_SESSIONS_KEY, sessionId);
     }
 
-    /**
-     * Удаляет игрока из очереди ожидания
-     *
-     * @param playerId ID игрока, которого нужно удалить из очереди
-     */
-    public void removePlayerFromQueue(Long playerId) {
-        // Удаляем связь игрока с сессией
-        String playerKey = PLAYER_SESSION_KEY + playerId;
-        String sessionId = (String) redisTemplate.opsForValue().get(playerKey);
+    public void deleteSessionAndRelatedData(String roomId) {
+        try {
+            // Формируем все ключи, которые нужно удалить
+            String sessionKey = SESSION_KEY + roomId;
+            String timerKey = ROUND_TIMER_KEY + roomId;
+            String voteKey = "game:votes:" + roomId; // пример дополнительного ключа
 
-        if (sessionId != null) {
-            // Удаляем сессию из списка ожидающих
-            redisTemplate.opsForSet().remove(WAITING_PLAYERS_KEY, sessionId);
-            // Удаляем связь игрока с сессией
-            redisTemplate.delete(playerKey);
+            // Атомарное удаление всех связанных данных
+            List<String> keysToDelete = Arrays.asList(sessionKey, timerKey, voteKey);
+            Long deletedCount = redisTemplate.delete(keysToDelete);
 
-            log.info("Player {} removed from queue, session {} cleared", playerId, sessionId);
-        } else {
-            log.debug("No active session found for player {}", playerId);
+            if (deletedCount == null || deletedCount == 0) {
+                log.warn("No data found to delete for room: {}", roomId);
+            } else {
+                log.info("Deleted {} items for room: {}", deletedCount, roomId);
+            }
+
+            // Дополнительная очистка (если нужно)
+            redisTemplate.getConnectionFactory().getConnection()
+                    .publish(("game:cleanup:" + roomId).getBytes(), "done".getBytes());
+
+        } catch (Exception e) {
+            log.error("Failed to delete session data for room: {}", roomId, e);
+            throw new RedisOperationException("Session deletion failed", e);
+        }
+    }
+    public void removeFromQueue(Long userId) {
+        try {
+            Long removed = redisTemplate.opsForList().remove(MATCHMAKING_QUEUE, 0, userId);
+            if (removed != null && removed > 0) {
+                log.info("Player {} removed from queue", userId);
+            } else {
+                log.debug("Player {} not found in queue", userId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to remove player {} from queue", userId, e);
+            throw e;
         }
     }
 
-
-    public Set<String> findWaitingSessions() {
-        return redisTemplate.opsForSet().members(WAITING_PLAYERS_KEY)
-                .stream()
-                .map(Object::toString)
-                .collect(Collectors.toSet());
+    public void trimQueue(int count) {
+        try {
+            redisTemplate.opsForList().trim(MATCHMAKING_QUEUE, count, -1);
+            log.info("Queue trimmed to {} elements", count);
+        } catch (Exception e) {
+            log.error("Failed to trim queue", e);
+            throw e;
+        }
     }
-
 
     private Map<String, String> convertToMap(RedisGameSession session) {
         Map<String, String> map = new HashMap<>();
-        map.put("sessionId", session.getSessionId());
-        map.put("dbId", String.valueOf(session.getDbId()));
-        map.put("roomId", session.getRoomId());
+
+        map.put("sessionId", nullSafe(session.getSessionId()));
+        map.put("roomId", nullSafe(session.getRoomId()));
         map.put("matchId", String.valueOf(session.getMatchId()));
-        map.put("heroId", String.valueOf(session.getHeroId()));
-        map.put("itemIds", String.join(",",
-                session.getItemIds().stream().map(String::valueOf).collect(Collectors.toList())));
-        map.put("backpackIds", String.join(",",
-                session.getBackpackIds().stream().map(String::valueOf).collect(Collectors.toList())));
-        map.put("neutralItemId",
-                session.getNeutralItemId() != null ? String.valueOf(session.getNeutralItemId()) : "");
-        // Изменяем сохранение playerIds - преобразуем Long в String
-        map.put("playerIds", String.join(",",
-                session.getPlayerIds().stream()
-                        .map(String::valueOf)
-                        .collect(Collectors.toList())));
+        map.put("targetHeroId", String.valueOf(session.getTargetHeroId()));
+        map.put("neutralItemId", session.getNeutralItemId() != null ? String.valueOf(session.getNeutralItemId()) : "");
+        map.put("winnerId", session.getWinnerId() != null ? String.valueOf(session.getWinnerId()) : "");
         map.put("status", session.getStatus().name());
-        map.put("winnerId", session.getWinnerId() != null ?
-                String.valueOf(session.getWinnerId()) : "");
-        map.put("createdAt", String.valueOf(session.getCreatedAt()));
+        map.put("currentRound", String.valueOf(session.getCurrentRound()));
+        map.put("timeLeft", String.valueOf(session.getTimeLeft()));
+
+        try {
+            map.put("playerIds", objectMapper.writeValueAsString(session.getPlayerIds()));
+            map.put("itemIds", objectMapper.writeValueAsString(session.getItemIds()));
+            map.put("backpackIds", objectMapper.writeValueAsString(session.getBackpackIds()));
+            map.put("currentVotes", objectMapper.writeValueAsString(session.getCurrentVotes()));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Ошибка сериализации сложных полей RedisGameSession", e);
+        }
+
         return map;
     }
 
-    private RedisGameSession convertFromMap(Map<Object, Object> map) {
-        String playerIdsStr = map.get("playerIds").toString();
-        Set<Long> playerIds = playerIdsStr.isEmpty() ?
-                new HashSet<>() :
-                Arrays.stream(playerIdsStr.split(","))
-                        .map(Long::valueOf)
-                        .collect(Collectors.toSet());
 
-        return RedisGameSession.builder()
-                .sessionId(map.get("sessionId").toString())
-                .dbId(Long.valueOf(map.get("dbId").toString()))
-                .roomId(map.get("roomId").toString())
-                .matchId(Long.valueOf(map.get("matchId").toString()))
-                .itemIds(Arrays.stream(map.get("itemIds").toString().split(","))
-                        .filter(s -> !s.isEmpty())
-                        .map(Long::valueOf)
-                        .collect(Collectors.toList()))
-                .backpackIds(Arrays.stream(map.get("backpackIds").toString().split(","))
-                        .filter(s -> !s.isEmpty())
-                        .map(Long::valueOf)
-                        .collect(Collectors.toList()))
-                .neutralItemId(map.get("neutralItemId").toString().isEmpty() ? null :
-                        Long.valueOf(map.get("neutralItemId").toString()))
-                .playerIds(playerIds)  // Используем преобразованный Set<Long>
-                .status(GameStatus.valueOf(map.get("status").toString()))
-                .winnerId(map.get("winnerId").toString().isEmpty() ? null :
-                        Long.valueOf(map.get("winnerId").toString()))
-                .createdAt(Long.valueOf(map.get("createdAt").toString()))
-                .build();
+    private RedisGameSession convertFromMap(Map<String, String> map) {
+        try {
+            return RedisGameSession.builder()
+                    .roomId(unquote(map.get("roomId")))
+                    .sessionId(unquote(map.get("sessionId")))
+                    .matchId(toLongSafe(map.get("matchId")))
+                    .targetHeroId(toLongSafe(map.get("targetHeroId")))
+                    .neutralItemId(toLongSafe(map.get("neutralItemId")))
+                    .winnerId(toLongSafe(map.get("winnerId")))
+                    .status(GameStatus.valueOf(unquote(map.get("status"))))
+                    .currentRound(toIntSafe(map.get("currentRound")))
+                    .timeLeft(toIntSafe(map.get("timeLeft")))
+                    .playerIds(parseLongSet(map.get("playerIds")))
+                    .itemIds(parseLongList(map.get("itemIds")))
+                    .backpackIds(parseLongList(map.get("backpackIds")))
+                    .currentVotes(parseLongMap(map.get("currentVotes")))
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Ошибка при десериализации RedisGameSession", e);
+        }
     }
 
-    public GameSessionDTO convertToGameSessionFromRedisDTO(RedisGameSession redisSession) {
-        return GameSessionDTO.builder()
-                .roomId(redisSession.getRoomId()) // ID комнаты
-                .matchId(String.valueOf(redisSession.getMatchId())) // ID матча
-                .status(redisSession.getStatus()) // Статус сессии
-                .players(redisSession.getPlayerIds().stream()
-                        .map(playerId -> PlayerDTO.builder()
-                                .id(playerId) // Только ID игрока
-                                .build())
-                        .collect(Collectors.toList()))
-                .items(redisSession.getItemIds().stream()
-                        .map(itemId -> ItemDTO.builder()
-                                .id(itemId) // Только ID предмета
-                                .build())
-                        .collect(Collectors.toList()))
-                .backpacks(redisSession.getBackpackIds().stream()
-                        .map(itemId -> ItemDTO.builder()
-                                .id(itemId) // Только ID предмета
-                                .build())
-                        .collect(Collectors.toList()))
-                .neutralItem(redisSession.getNeutralItemId() != null ?
-                        ItemDTO.builder()
-                                .id(redisSession.getNeutralItemId()) // Только ID нейтрального предмета
-                                .build()
-                        : null)
-                .build();
+    private String nullSafe(String s) {
+        return s == null ? "" : s;
+    }
+
+
+    private String unquote(String s) {
+        if (s == null) return null;
+        return s.replaceAll("^\"|\"$", ""); // удаляет кавычки
+    }
+
+    private Long toLongSafe(String s) {
+        if (s == null || s.isEmpty() || s.equalsIgnoreCase("null")) return null;
+        return Long.valueOf(s);
+    }
+
+    private Integer toIntSafe(String s) {
+        if (s == null || s.isEmpty() || s.equalsIgnoreCase("null")) return 0;
+        return Integer.valueOf(s);
+    }
+
+    private List<Long> parseLongList(String s) throws JsonProcessingException {
+        if (s == null || s.isEmpty() || s.equalsIgnoreCase("null")) return new ArrayList<>();
+        return objectMapper.readValue(s, new TypeReference<List<Long>>() {});
+    }
+
+    private Set<Long> parseLongSet(String s) throws JsonProcessingException {
+        if (s == null || s.isEmpty() || s.equalsIgnoreCase("null")) return new HashSet<>();
+        return objectMapper.readValue(s, new TypeReference<Set<Long>>() {});
+    }
+
+    private Map<Long, Long> parseLongMap(String s) throws JsonProcessingException {
+        if (s == null || s.isEmpty() || s.equalsIgnoreCase("null")) return new HashMap<>();
+        return objectMapper.readValue(s, new TypeReference<Map<Long, Long>>() {});
     }
 
 

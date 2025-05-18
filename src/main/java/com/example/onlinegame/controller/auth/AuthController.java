@@ -7,11 +7,16 @@
  import com.example.onlinegame.model.user.RefreshToken;
  import com.example.onlinegame.model.user.Role;
  import com.example.onlinegame.repo.user.RoleRepository;
- import com.example.onlinegame.security.RefreshTokenService;
+ import com.example.onlinegame.security.UserPrincipal;
+ import com.example.onlinegame.service.user.RefreshTokenService;
+ import jakarta.servlet.http.HttpServletRequest;
+ import jakarta.servlet.http.HttpServletResponse;
  import lombok.RequiredArgsConstructor;
  import com.example.onlinegame.model.user.User;
+ import lombok.extern.slf4j.Slf4j;
  import org.springframework.beans.factory.annotation.Value;
  import org.springframework.http.HttpStatus;
+ import org.springframework.http.ResponseCookie;
  import org.springframework.http.ResponseEntity;
  import org.springframework.security.authentication.AuthenticationManager;
  import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -19,10 +24,7 @@
  import org.springframework.security.core.AuthenticationException;
  import org.springframework.security.core.GrantedAuthority;
  import org.springframework.security.crypto.password.PasswordEncoder;
- import org.springframework.web.bind.annotation.PostMapping;
- import org.springframework.web.bind.annotation.RequestBody;
- import org.springframework.web.bind.annotation.RequestMapping;
- import org.springframework.web.bind.annotation.RestController;
+ import org.springframework.web.bind.annotation.*;
  import com.example.onlinegame.repo.user.UserRepository;
  import com.example.onlinegame.security.JwtUtil;
 
@@ -34,6 +36,7 @@
  @RestController
  @RequestMapping("/api/auth")
  @RequiredArgsConstructor
+ @Slf4j
  public class AuthController {
 
      private final AuthenticationManager authenticationManager;
@@ -43,124 +46,163 @@
      private final PasswordEncoder passwordEncoder;
      private final RefreshTokenService refreshTokenService;
 
-     @Value("${jwt.refreshExpiration}")
+     @Value("${jwt.expiration}")             // access-token lifetime in ms
+     private long jwtExpiration;
+     @Value("${jwt.refreshExpiration}")      // refresh-token lifetime in minutes
      private long refreshExpiration;
 
      @PostMapping("/login")
-     public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest authRequest) {
-         try {
-             // Аутентификация пользователя
-             Authentication authentication = authenticationManager.authenticate(
-                     new UsernamePasswordAuthenticationToken(
-                             authRequest.getUsername(),
-                             authRequest.getPassword()
-                     )
-             );
+     public ResponseEntity<?> login(@RequestBody AuthRequest authRequest,
+                                    HttpServletResponse response) {
+         log.info("Login attempt for username='{}'", authRequest.getUsername());
 
-             // Получаем пользователя
-             User user = userRepository.findByUsername(authRequest.getUsername())
-                     .orElseThrow(() -> new RuntimeException("User not found"));
+         // 1. Аутентификация и получение нашего UserPrincipal
+         Authentication auth = authenticationManager.authenticate(
+                 new UsernamePasswordAuthenticationToken(
+                         authRequest.getUsername(),
+                         authRequest.getPassword()
+                 )
+         );
+         UserPrincipal user = (UserPrincipal) auth.getPrincipal();
+         log.info("Authentication successful for user id={}", user.getUserId());
 
-             // Получаем роли пользователя
-             List<String> roles = authentication.getAuthorities().stream()
-                     .map(GrantedAuthority::getAuthority)
-                     .collect(Collectors.toList());
 
-             // Проверяем наличие активного refreshToken
-             Optional<RefreshToken> existingToken = refreshTokenService.findActiveRefreshTokenByUser(user);
+         List<String> roles = auth.getAuthorities().stream()
+                 .map(GrantedAuthority::getAuthority)
+                 .toList();
 
-             String refreshToken;
-             if (existingToken.isPresent()) {
-                 // Если есть активный refreshToken, используем его
-                 refreshToken = existingToken.get().getToken();
+         // 2. Генерируем access-token
+         String accessToken = jwtUtil.generateToken(user, roles);
+
+         // 3. Обрабатываем refresh-token в БД
+         String refreshToken;
+         var existing = refreshTokenService.findActiveRefreshTokenByUser(user.getUserId());
+         if (existing.isPresent()) {
+             RefreshToken rt = existing.get();
+             if (!refreshTokenService.validateRefreshToken(rt.getToken())) {
+                 log.warn("Existing refresh token expired for user id={}. Deactivating.", user.getUserId());
+                 refreshTokenService.deactivateRefreshToken(rt.getToken());
+                 refreshToken = refreshTokenService.createRefreshToken(user.getUserId(), refreshExpiration / 1000);
+                 log.info("Created new refresh token for user id={}", user.getUserId());
              } else {
-                 // Если активного токена нет, создаем новый
-                 refreshToken = refreshTokenService.createRefreshToken(user.getId(), refreshExpiration); // 7 дней
+                 refreshToken = rt.getToken();
+                 log.info("Reusing existing valid refresh token for user id={}", user.getUserId());
              }
-
-             // Генерация JWT accessToken
-             String jwt = jwtUtil.generateToken(user, roles);
-
-             // Создаем DTO пользователя
-             UserDto userDto = new UserDto(
-                     user.getId(),
-                     user.getUsername(),
-                     roles,
-                     user.getWins(),
-                     user.getLosses()
-             );
-
-             // Возвращаем токены и данные пользователя
-             return ResponseEntity.ok(new AuthResponse(jwt, refreshToken, userDto));
-         } catch (AuthenticationException e) {
-             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                     .body(new AuthResponse(null, null, null));
+         } else {
+             refreshToken = refreshTokenService.createRefreshToken(user.getUserId(), refreshExpiration / 1000);
+             log.info("Created first-time refresh token for user id={}", user.getUserId());
          }
+
+         // 4. Формируем куки
+         ResponseCookie accessCookie = ResponseCookie.from("access_token", accessToken)
+                 .httpOnly(true)
+                 .secure(true)
+                 .path("/")
+                 .maxAge(jwtExpiration / 1000)
+                 .sameSite("Strict")
+                 .build();
+
+         ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refreshToken)
+                 .httpOnly(true)
+                 .secure(true)
+                 .path("/api/auth/refresh")
+                 .maxAge(refreshExpiration / 1000)
+                 .sameSite("Strict")
+                 .build();
+
+         // 5. Добавляем куки в ответ
+         response.addHeader("Set-Cookie", accessCookie.toString());
+         response.addHeader("Set-Cookie", refreshCookie.toString());
+         log.info("Set access_token and refresh_token cookies for user id={}", user.getUserId());
+
+         // 6. Возвращаем DTO пользователя
+         UserDto dto = new UserDto(user.getUserId(),
+                 user.getUsername(),
+                 roles,
+                 user.getEmail(),
+                 user.getWins(),
+                 user.getLosses());
+         return ResponseEntity.ok(new AuthResponse(dto));
      }
 
+
      @PostMapping("/register")
-     public ResponseEntity<?> register(@RequestBody AuthRequest authRequest) {
-         // Проверяем, существует ли пользователь с таким именем
+     public ResponseEntity<?> register(@RequestBody AuthRequest authRequest,
+                                       HttpServletRequest request) {
          if (userRepository.findByUsername(authRequest.getUsername()).isPresent()) {
              return ResponseEntity.badRequest().body("Username already exists");
          }
 
-         // Создаем нового пользователя
+         String ip = request.getRemoteAddr();
+
          User user = new User();
          user.setUsername(authRequest.getUsername());
          user.setPassword(passwordEncoder.encode(authRequest.getPassword()));
+         user.setRegistrationIp(ip);
          user.setWins(0);
          user.setLosses(0);
-
-         // Назначаем роль ROLE_USER по умолчанию
-         Role userRole = roleRepository.findByName("ROLE_USER")
-                 .orElseThrow(() -> new RuntimeException("Role ROLE_USER not found"));
-         user.getRoles().add(userRole);
-
-         // Сохраняем пользователя
+         Role role = roleRepository.findByName("ROLE_USER")
+                 .orElseThrow(() -> new RuntimeException("Role not found"));
+         user.getRoles().add(role);
          userRepository.save(user);
-
-         return ResponseEntity.ok("Пользователь успешно зарегистрирован!");
+         log.info("Registered new user id={} from IP={}", user.getId(), ip);
+         return ResponseEntity.ok("User registered");
      }
 
      @PostMapping("/refresh")
-     public ResponseEntity<?> refreshToken(@RequestBody RefreshTokenRequest request) {
-         String refreshToken = request.getRefreshToken();
-
-         // Проверка валидности refreshToken через RefreshTokenService
-         if (!refreshTokenService.validateRefreshToken(refreshToken)) {
-             return ResponseEntity.status(401).body("Invalid or expired refresh token");
+     public ResponseEntity<?> refreshToken(@CookieValue(name = "refresh_token", required = false) String token,
+                                           HttpServletResponse response) {
+         if (token == null) {
+             log.warn("Refresh attempt failed: no refresh_token cookie present");
+             return ResponseEntity
+                     .status(401)
+                     .body("Refresh token is missing. Please log in again.");
          }
 
-         // Получение токена и пользователя из базы данных
-         RefreshToken token = refreshTokenService.getRefreshToken(refreshToken);
-         User user = token.getUser(); // Связь ManyToOne позволяет получить пользователя напрямую
-
-         // Генерация нового accessToken
+         if (!refreshTokenService.validateRefreshToken(token)) {
+             log.warn("Refresh attempt failed: token {} is invalid or expired", token);
+             return ResponseEntity
+                     .status(401)
+                     .body("Refresh token is invalid or expired. Please authenticate again.");
+         }
+         RefreshToken dbToken = refreshTokenService.getRefreshToken(token);
+         User user = dbToken.getUser();
          List<String> roles = user.getRoles().stream()
                  .map(Role::getName)
                  .collect(Collectors.toList());
-         String newAccessToken = jwtUtil.generateToken(user, roles);
+         String newAccess = jwtUtil.generateToken(user, roles);
 
-         // Создание UserDto
-         UserDto userDto = new UserDto(
-                 user.getId(),
-                 user.getUsername(),
-                 roles,
-                 user.getWins(),
-                 user.getLosses()
+         log.info("Access token refreshed for user id={}", user.getId());
+
+         // Обновляем access_token cookie
+         ResponseCookie newAccessCookie = ResponseCookie.from("access_token", newAccess)
+                 .httpOnly(true).secure(true)
+                 .path("/")
+                 .maxAge(jwtExpiration / 1000)
+                 .sameSite("Strict")
+                 .build();
+         response.addHeader("Set-Cookie", newAccessCookie.toString());
+
+         UserDto dto = new UserDto(
+                 user.getId(), user.getUsername(), roles, user.getEmail(), user.getWins(), user.getLosses()
          );
-
-         return ResponseEntity.ok(new AuthResponse(newAccessToken, refreshToken, userDto));
+         return ResponseEntity.ok(new AuthResponse(dto));
      }
 
      @PostMapping("/logout")
-     public ResponseEntity<?> logout(@RequestBody RefreshTokenRequest request) {
-         String refreshToken = request.getRefreshToken();
+     public ResponseEntity<?> logout(@CookieValue(name = "refresh_token", required = false) String token,
+                                     HttpServletResponse response) {
+         if (token != null) {
+             refreshTokenService.deactivateRefreshToken(token);
+         }
+         // Удаляем куки, выставляя maxAge=0
+         ResponseCookie deleteAccess = ResponseCookie.from("access_token", "")
+                 .path("/").maxAge(0).build();
+         ResponseCookie deleteRefresh = ResponseCookie.from("refresh_token", "")
+                 .path("/api/auth/refresh").maxAge(0).build();
+         response.addHeader("Set-Cookie", deleteAccess.toString());
+         response.addHeader("Set-Cookie", deleteRefresh.toString());
 
-         // Деактивация токена
-         refreshTokenService.deactivateRefreshToken(refreshToken);
-
-         return ResponseEntity.ok("Logged out successfully");
+         return ResponseEntity.ok("Logged out");
      }
  }

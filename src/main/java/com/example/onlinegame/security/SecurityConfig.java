@@ -1,5 +1,6 @@
 package com.example.onlinegame.security;
 
+import com.example.onlinegame.service.user.CustomUserDetailsService;
 import lombok.AllArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

@@ -1,10 +1,16 @@
 package com.example.onlinegame.service.matchmaking;
 
+import com.example.onlinegame.dto.event.MatchmakingEvent;
+import com.example.onlinegame.dto.event.SessionEvent;
 import com.example.onlinegame.dto.session.GameSessionDTO;
 import com.example.onlinegame.dto.session.ItemDTO;
 import com.example.onlinegame.dto.session.PlayerDTO;
+import com.example.onlinegame.exception.AlreadyInSessionException;
+import com.example.onlinegame.exception.MatchmakingException;
+import com.example.onlinegame.exception.UserNotFoundException;
 import com.example.onlinegame.model.matchmaking.GameSession;
-import com.example.onlinegame.model.matchmaking.GameStatus;
+import com.example.onlinegame.model.matchmaking.status.GameStatus;
+import com.example.onlinegame.model.matchmaking.status.MatchmakingStatus;
 import com.example.onlinegame.model.matchmaking.RedisGameSession;
 import com.example.onlinegame.model.user.User;
 import com.example.onlinegame.repo.matchmaking.GameSessionRedisRepository;
@@ -14,10 +20,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Map;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -25,222 +31,218 @@ import java.util.stream.Collectors;
 @Slf4j
 @RequiredArgsConstructor
 public class MatchmakingService {
-    private final GameService gameService;
-    private final GameSessionRepository gameSessionRepository;
-    private final GameSessionRedisRepository redisRepository;
+    private final GameSessionRedisRepository redisRepo;
+    private final GameSessionRepository dbRepo;
+    private final UserRepository userRepo;
     private final SimpMessagingTemplate messagingTemplate;
-    private final UserRepository userRepository;
-
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    public GameSessionDTO findMatch(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // 1. Проверяем сессию в Redis
-        Optional<RedisGameSession> existingRedisSession = redisRepository.findPlayerSession(userId);
-        if (existingRedisSession.isPresent()) {
-            RedisGameSession redisSession = existingRedisSession.get();
-
-            // Конвертируем данные из Redis в DTO
-            GameSessionDTO sessionDTO = redisRepository.convertToGameSessionFromRedisDTO(redisSession);
-
-            // Возвращаем сессию, если она активна
-            if (sessionDTO.getStatus() != GameStatus.COMPLETED &&
-                    sessionDTO.getStatus() != GameStatus.CANCELLED) {
-                return sessionDTO;
-            }
-
-            // Если сессия завершена или отменена, удаляем её из Redis
-            redisRepository.removeSession(redisSession.getSessionId());
-        }
-
-        // 2. Проверяем доступную сессию в базе данных
-        Optional<GameSession> existingSession = gameSessionRepository.findByStatusAndSessionPlayersSizeLessThan(
-                        GameStatus.WAITING, 2)
-                .filter(session -> !session.hasPlayer(userId));
-
-        if (existingSession.isPresent()) {
-            return joinExistingSession(user, existingSession.get());
-        }
-
-        // 3. Создаём новую сессию
-        return createNewSession(user);
-    }
-
-
+    private final GameService gameService;
+    private final ItemCache itemCache;
 
     @Transactional
-    protected GameSessionDTO createNewSession(User user) {
-        Optional<RedisGameSession> redisSessionOpt = redisRepository.findPlayerSession(user.getId());
-        if (redisSessionOpt.isPresent()) {
-            RedisGameSession redisSession = redisSessionOpt.get();
-            return redisRepository.convertToGameSessionFromRedisDTO(redisSession);
+    public GameSessionDTO findMatch(Long userId) {
+        try {
+            // 1. Проверяем существование пользователя
+            User user = userRepo.findById(userId)
+                    .orElseThrow(() -> new UserNotFoundException(userId));
+
+            // 2. Проверяем и обрабатываем возможные конфликты
+            Optional<RedisGameSession> existingSession = redisRepo.findPlayerSession(user.getId());
+            if (existingSession.isPresent()) {
+                RedisGameSession session = existingSession.get();
+                if (session.getPlayerIds().contains(user.getId())) {
+                    // Пользователь уже в активной сессии
+                    log.warn("Пользователь {} уже в сессии {}", user.getId(), session.getRoomId());
+                    return convertToDto(session); // Возвращаем текущую сессию
+                }
+            }
+
+            // 3. Проверяем, не находится ли пользователь уже в очереди
+            if (redisRepo.isUserInQueue(user.getId())) {
+                log.warn("Пользователь {} уже в очереди поиска", user.getId());
+                return GameSessionDTO.builder()
+                        .roomId(null)
+                        .status(GameStatus.SEARCHING)
+                        .players(List.of(convertToPlayerDto(user.getId())))
+                        .build();
+            }
+
+            // 4. Начинаем поиск матча
+            log.info("Пользователь {} начал поиск матча", user.getId());
+            notifyUser(user.getId(), MatchmakingStatus.SEARCHING, "Поиск соперника...");
+            redisRepo.addToQueue(user.getId());
+
+            // 5. Пытаемся найти пару
+            List<Long> players = findTwoDistinctPlayers(user.getId());
+            if (players.size() == 2) {
+                log.info("Найдена пара: {}", players);
+                redisRepo.trimQueue(2);
+                return convertToDto(gameService.createSession(players));
+            }
+
+            return GameSessionDTO.builder()
+                    .roomId(null)
+                    .status(GameStatus.SEARCHING)
+                    .players(List.of(convertToPlayerDto(user.getId())))
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Ошибка поиска матча для пользователя {}", userId, e);
+            cleanupUserState(userId); // Аккуратная очистка состояния
+            handleMatchmakingError(userId, e);
+            throw new MatchmakingException("Не удалось найти матч" + e);
         }
-
-        GameSession session = gameService.createGameSession();
-        session.setStatus(GameStatus.WAITING); // Устанавливаем начальный статус
-        session.addPlayer(user);
-
-        // Проверяем статус после добавления игрока
-        updateSessionStatus(session);
-
-        session = gameSessionRepository.save(session);
-
-        // Сохраняем в Redis
-        redisRepository.saveSession(RedisGameSession.fromGameSession(session));
-
-        GameSessionDTO sessionDTO = convertToGameSessionDTO(session);
-
-        messagingTemplate.convertAndSend("/topic/matchmaking/" + user.getId(),
-                Map.of(
-                        "status", session.getStatus().toString(),
-                        "gameSession", sessionDTO
-                ));
-
-        return sessionDTO;
     }
 
+    private void cleanupUserState(Long userId) {
+        try {
+            // Удаляем из очереди
+            redisRepo.removeFromQueue(userId);
 
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    protected GameSessionDTO joinExistingSession(User user, GameSession session) {
-        // Проверяем, если пользователь уже в сессии, выбрасываем исключение
-        if (session.hasPlayer(user.getId())) {
-            throw new IllegalStateException("User is already part of the session");
+            // Проверяем сессию (если была создана ошибочно)
+            redisRepo.findPlayerSession(userId).ifPresent(session -> {
+                if (session.getPlayerIds().size() == 1) {
+                    redisRepo.deleteSessionAndRelatedData(session.getRoomId());
+                } else {
+                    session.getPlayerIds().remove(userId);
+                    redisRepo.saveSession(session);
+                }
+            });
+        } catch (Exception e) {
+            log.error("Ошибка очистки состояния для пользователя {}", userId, e);
+        }
+    }
+
+    private List<Long> findTwoDistinctPlayers(Long currentUserId) {
+        List<Long> candidates = redisRepo.pollTwoPlayers();
+
+        // Фильтруем дубликаты и текущего пользователя
+        List<Long> distinctPlayers = candidates.stream()
+                .distinct()
+                .filter(id -> !id.equals(currentUserId))
+                .collect(Collectors.toList());
+
+        // Если нашли хотя бы одного уникального соперника
+        if (distinctPlayers.size() >= 1) {
+            return List.of(currentUserId, distinctPlayers.get(0));
         }
 
-        // Добавляем пользователя в сессию
-        session.addPlayer(user);
-
-        // Проверяем и обновляем статус игры
-        updateSessionStatus(session);
-
-        // Сохраняем изменения в базе данных
-        session = gameSessionRepository.save(session);
-
-        // Обновляем сессию в Redis
-        redisRepository.saveSession(RedisGameSession.fromGameSession(session));
-
-        // Конвертируем сессию в DTO
-        GameSessionDTO sessionDTO = convertToGameSessionDTO(session);
-
-        // Отправляем уведомление всем игрокам
-        GameSession finalSession = session;
-        session.getSessionPlayers().forEach(player -> {
-            String status = finalSession.getStatus() == GameStatus.IN_PROGRESS ?
-                    "IN_PROGRESS" : "WAITING";
-            messagingTemplate.convertAndSend("/topic/matchmaking/" + player.getId(),
-                    Map.of(
-                            "status", status,
-                            "gameSession", sessionDTO
-                    ));
-        });
-
-        // Если игра началась, отправляем дополнительное уведомление
-        if (session.getStatus() == GameStatus.IN_PROGRESS) {
-            messagingTemplate.convertAndSend("/topic/game/" + session.getRoomId(), sessionDTO);
-        }
-
-        return sessionDTO;
+        return List.of();
     }
 
     @Transactional
     public void cancelMatchmaking(Long userId) {
-        gameSessionRepository
-                .findByStatusAndSessionPlayersId(GameStatus.WAITING, userId)
-                .ifPresent(session -> {
-                    // Удаляем игрока из сессии
-                    session.getSessionPlayers().removeIf(player ->
-                            player.getId().equals(userId));
+        try {
+            // Удаление из очереди
+            redisRepo.removeFromQueue(userId);
 
-                    // Обновляем статус сессии
-                    updateSessionStatus(session);
+            // Отмена активной сессии
+            redisRepo.findPlayerSession(userId).ifPresent(session -> {
+                if (session.getPlayerIds().size() == 1) {
+                    redisRepo.deleteSessionAndRelatedData(session.getRoomId());
+                    notifySession(session, MatchmakingStatus.CANCELLED);
+                } else {
+                    session.getPlayerIds().remove(userId);
+                    redisRepo.saveSession(session);
+                    notifySession(session, MatchmakingStatus.PLAYER_LEFT);
+                }
+            });
 
-                    if (session.getStatus() == GameStatus.CANCELLED) {
-                        gameSessionRepository.delete(session);
-                        redisRepository.removeSession(session.getRoomId());
-                    } else {
-                        session = gameSessionRepository.save(session);
-                        redisRepository.saveSession(RedisGameSession.fromGameSession(session));
+            notifyUser(userId, MatchmakingStatus.CANCELLED, "Поиск отменён");
 
-                        // Уведомляем оставшихся игроков
-                        GameSessionDTO sessionDTO = convertToGameSessionDTO(session);
-                        session.getSessionPlayers().forEach(player ->
-                                messagingTemplate.convertAndSend("/topic/matchmaking/" + player.getId(),
-                                        Map.of(
-                                                "status", sessionDTO.getStatus().toString(),
-                                                "gameSession", sessionDTO
-                                        ))
-                        );
-                    }
-
-                    // Уведомляем игрока, который покинул сессию
-                    messagingTemplate.convertAndSend("/topic/matchmaking/" + userId,
-                            Map.of("status", "CANCELLED"));
-                });
-    }
-
-    public Optional<GameSession> getCurrentSession(Long userId) {
-        Optional<RedisGameSession> redisSession = redisRepository.findPlayerSession(userId);
-        if (redisSession.isPresent()) {
-            return  gameSessionRepository.findByRoomId(redisSession.get().getSessionId());
-        }
-        return Optional.empty();
-    }
-
-    // Добавляем метод для обновления статуса сессии
-    private void updateSessionStatus(GameSession session) {
-        if (session.isFull()) {
-            session.setStatus(GameStatus.IN_PROGRESS);
-            log.info("Session {} is now IN_PROGRESS with {} players",
-                    session.getRoomId(), session.getSessionPlayers().size());
-        } else if (session.getSessionPlayers().isEmpty()) {
-            session.setStatus(GameStatus.CANCELLED);
-            log.info("Session {} is now CANCELLED (no players)",
-                    session.getRoomId());
-        } else {
-            session.setStatus(GameStatus.WAITING);
-            log.info("Session {} is now WAITING with {} players",
-                    session.getRoomId(), session.getSessionPlayers().size());
+        } catch (Exception e) {
+            log.error("Ошибка отмены поиска: {}", userId, e);
+            handleMatchmakingError(userId, e);
         }
     }
 
+    public Optional<GameSessionDTO> getCurrentSession(Long userId) {
+        // Проверяем активную сессию в Redis
+        Optional<GameSessionDTO> activeSession = redisRepo.findPlayerSession(userId)
+                .map(this::convertToDto)
+                .filter(dto -> dto.getStatus() != GameStatus.FINISHED);
 
-    // Вспомогательный метод для конвертации GameSession в DTO
-    private GameSessionDTO convertToGameSessionDTO(GameSession session) {
+        if (activeSession.isPresent()) {
+            return activeSession;
+        }
+
+        return dbRepo.findByPlayerId(userId)
+                .map(this::convertToDto)
+                .filter(dto -> dto.getStatus() == GameStatus.FINISHED)
+                .filter(dto -> dto.getFinishTime().isAfter(LocalDateTime.now().minusHours(24)));
+    }
+
+
+    private GameSessionDTO convertToDto(RedisGameSession session) {
         return GameSessionDTO.builder()
                 .roomId(session.getRoomId())
-                .matchId(String.valueOf(session.getMatchId()))
                 .status(session.getStatus())
-                .players(session.getSessionPlayers().stream()
-                        .map(player -> PlayerDTO.builder()
-                                .id(player.getId())
-                                .username(player.getUsername())
-                                .build())
+                .players(session.getPlayerIds().stream()
+                        .map(this::convertToPlayerDto)
                         .collect(Collectors.toList()))
-                .items(session.getItems().stream()
-                        .map(item -> ItemDTO.builder()
-                                .id(item.getId())
-                                .name(item.getDname())
-                                .img(item.getImg())
-                                .cost(item.getCost())
-                                .build())
-                        .collect(Collectors.toList()))
-                .backpacks(session.getBackpack().stream()
-                        .map(item -> ItemDTO.builder()
-                                .id(item.getId())
-                                .name(item.getDname())
-                                .img(item.getImg())
-                                .cost(item.getCost())
-                                .build())
-                        .collect(Collectors.toList()))
-                .neutralItem(session.getNeutralItem() != null ?
-                        ItemDTO.builder()
-                                .id(session.getNeutralItem().getId())
-                                .name(session.getNeutralItem().getDname())
-                                .img(session.getNeutralItem().getImg())
-                                .cost(session.getNeutralItem().getCost())
-                                .build()
-                        : null)
+                .items(convertItems(session.getItemIds()))
+                .backpacks(convertItems(session.getBackpackIds()))
+                .neutralItem(convertItem(session.getNeutralItemId()))
+                .currentRound(session.getCurrentRound())
+                .timeLeft(session.getTimeLeft())
                 .build();
+    }
+
+    private GameSessionDTO convertToDto(GameSession entity) {
+        return GameSessionDTO.builder()
+                .roomId(entity.getRoomId())
+                .status(entity.getStatus()) // Статус из БД
+                .players(entity.getPlayerIds().stream()
+                        .map(this::convertToPlayerDto)
+                        .collect(Collectors.toList()))                .items(convertItems(entity.getItemIds()))
+                .backpacks(convertItems(entity.getBackpackIds()))
+                .neutralItem(convertItem(entity.getNeutralItemId()))
+                .finishTime(entity.getFinishedAt())
+                .build();
+    }
+
+    private PlayerDTO convertToPlayerDto(Long userId) {
+        return userRepo.findById(userId)
+                .map(user -> new PlayerDTO(user.getId(), user.getUsername()))
+                .orElse(new PlayerDTO(userId, "Unknown"));
+    }
+
+    private List<ItemDTO> convertItems(List<Long> itemIds) {
+        return itemIds.stream()
+                .map(this::convertItem)
+                .collect(Collectors.toList());
+    }
+
+    private ItemDTO convertItem(Long itemId) {
+        // Реализация кеширования/запроса предметов
+        return itemCache.getItem(itemId);
+    }
+
+    private void notifyUser(Long userId, MatchmakingStatus status, String message) {
+        messagingTemplate.convertAndSendToUser(
+                userId.toString(),
+                "/queue/matchmaking",
+                new MatchmakingEvent(status, message));
+    }
+
+    private void notifySession(RedisGameSession session, MatchmakingStatus status) {
+        session.getPlayerIds().forEach(playerId ->
+                messagingTemplate.convertAndSendToUser(
+                        playerId.toString(),
+                        "/queue/game",
+                        new SessionEvent(session.getRoomId(), status)));
+    }
+
+    private void handleMatchmakingError(Long userId, Exception e) {
+        log.error("Ошибка поиска матча: {}", userId, e);
+        notifyUser(userId, MatchmakingStatus.ERROR,
+                "Ошибка: " + e.getMessage());
+
+        redisRepo.removeFromQueue(userId);
+        redisRepo.findPlayerSession(userId).ifPresent(session -> {
+            if (session.getPlayerIds().contains(userId)) {
+                session.getPlayerIds().remove(userId);
+                redisRepo.saveSession(session);
+            }
+        });
     }
 }

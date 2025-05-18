@@ -13,6 +13,7 @@ public class UserDto {
     private Long id;
     private String username;
     private List<String> roles;
+    private String email;
     private Integer wins;
     private Integer losses;
 }

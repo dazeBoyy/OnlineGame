@@ -1,9 +1,10 @@
 package com.example.onlinegame.dto.session;
 
-import com.example.onlinegame.model.matchmaking.GameStatus;
+import com.example.onlinegame.model.matchmaking.status.GameStatus;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -15,5 +16,8 @@ public class GameSessionDTO {
     private List<PlayerDTO> players; // Игроки в сессии
     private List<ItemDTO> items; // Инвентарь
     private List<ItemDTO> backpacks; // Рюкзак
+    private Integer currentRound; // Игровой раунд
     private ItemDTO neutralItem; // Нейтральный предмет
+    private Integer timeLeft; // Время раунда
+    private LocalDateTime finishTime;
 }
