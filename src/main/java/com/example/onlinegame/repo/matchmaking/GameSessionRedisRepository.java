@@ -146,9 +146,8 @@ public class GameSessionRedisRepository {
             // Формируем все ключи, которые нужно удалить
             String sessionKey = SESSION_KEY + roomId;
             String timerKey = ROUND_TIMER_KEY + roomId;
-            String voteKey = "game:votes:" + roomId; // пример дополнительного ключа
+            String voteKey = "game:votes:" + roomId;
 
-            // Атомарное удаление всех связанных данных
             List<String> keysToDelete = Arrays.asList(sessionKey, timerKey, voteKey);
             Long deletedCount = redisTemplate.delete(keysToDelete);
 
@@ -158,7 +157,6 @@ public class GameSessionRedisRepository {
                 log.info("Deleted {} items for room: {}", deletedCount, roomId);
             }
 
-            // Дополнительная очистка (если нужно)
             redisTemplate.getConnectionFactory().getConnection()
                     .publish(("game:cleanup:" + roomId).getBytes(), "done".getBytes());
 

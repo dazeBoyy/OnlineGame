@@ -46,9 +46,9 @@
      private final PasswordEncoder passwordEncoder;
      private final RefreshTokenService refreshTokenService;
 
-     @Value("${jwt.expiration}")             // access-token lifetime in ms
+     @Value("${jwt.expiration}")
      private long jwtExpiration;
-     @Value("${jwt.refreshExpiration}")      // refresh-token lifetime in minutes
+     @Value("${jwt.refreshExpiration}")
      private long refreshExpiration;
 
      @PostMapping("/login")

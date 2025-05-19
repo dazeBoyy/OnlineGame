@@ -1,4 +1,4 @@
-name: webgame  # Явно указываем имя проекта
+name: webgame
 
 version: '3.8'
 
@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - webgame-network  # Изменено имя сети
+      - webgame-network
 
   redis:
     image: redis:latest
@@ -28,15 +28,15 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - webgame-network  # Изменено имя сети
+      - webgame-network
     restart: unless-stopped
 
 networks:
-  webgame-network:  # Изменено имя сети
+  webgame-network:
     driver: bridge
 
 volumes:
   postgres-data:
-    name: webgame_postgres-data  # Явно указываем имя volume
+    name: webgame_postgres-data
   redis-data:
-    name: webgame_redis-data    # Явно указываем имя volume
+    name: webgame_redis-data

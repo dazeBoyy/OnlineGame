@@ -19,16 +19,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic", "/queue"); // Добавлено /queue
+        config.enableSimpleBroker("/topic", "/queue");
         config.setApplicationDestinationPrefixes("/app");
-        config.setUserDestinationPrefix("/user"); // Для таргетированных сообщений
+        config.setUserDestinationPrefix("/user");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setHandshakeHandler(new DefaultHandshakeHandler())
-                .setAllowedOrigins("http://localhost:5173", "http://localhost:63342") // Add your frontend URL
+                .setAllowedOrigins("http://localhost:5173", "http://localhost:63342")
                 .withSockJS();
     }
 

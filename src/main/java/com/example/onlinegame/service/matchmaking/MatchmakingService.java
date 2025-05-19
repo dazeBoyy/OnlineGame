@@ -87,7 +87,7 @@ public class MatchmakingService {
 
         } catch (Exception e) {
             log.error("Ошибка поиска матча для пользователя {}", userId, e);
-            cleanupUserState(userId); // Аккуратная очистка состояния
+            cleanupUserState(userId);
             handleMatchmakingError(userId, e);
             throw new MatchmakingException("Не удалось найти матч" + e);
         }
@@ -190,7 +190,7 @@ public class MatchmakingService {
     private GameSessionDTO convertToDto(GameSession entity) {
         return GameSessionDTO.builder()
                 .roomId(entity.getRoomId())
-                .status(entity.getStatus()) // Статус из БД
+                .status(entity.getStatus())
                 .players(entity.getPlayerIds().stream()
                         .map(this::convertToPlayerDto)
                         .collect(Collectors.toList()))                .items(convertItems(entity.getItemIds()))
@@ -213,7 +213,6 @@ public class MatchmakingService {
     }
 
     private ItemDTO convertItem(Long itemId) {
-        // Реализация кеширования/запроса предметов
         return itemCache.getItem(itemId);
     }
 

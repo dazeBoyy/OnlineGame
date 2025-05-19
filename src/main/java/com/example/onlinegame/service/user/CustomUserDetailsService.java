@@ -23,11 +23,8 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        // Находим пользователя в базе данных
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
-
-        // Возвращаем объект UserDetails
         return new UserPrincipal(user);
     }
 }

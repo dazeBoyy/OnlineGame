@@ -19,7 +19,7 @@ import java.util.List;
 public class Item {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY) // Автоинкрементное поле
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(name = "item_id", unique = true, nullable = false)

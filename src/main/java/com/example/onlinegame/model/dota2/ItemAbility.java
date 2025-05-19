@@ -12,6 +12,6 @@ import lombok.*;
 class ItemAbility {
     private String type;
     private String title;
-    @Column(length = 1000) // Увеличьте длину столбца
+    @Column(length = 1000)
     private String description;
 }

@@ -11,10 +11,10 @@ import java.util.List;
 public class Hero {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;  // Это внутренний ID базы данных
+    private Long id;  //  ID базы данных
 
     @Column(name = "hero_id", unique = true, nullable = false)
-    private Integer heroId; // Это ID героя из JSON
+    private Integer heroId; // ID героя из JSON
 
     private String name;
     private String primaryAttribute;
@@ -30,16 +30,16 @@ public class Hero {
     @Column(name = "lanes")
     private List<String> lanes;
 
-    private Integer complexity; // Новое поле
-    private Integer releaseYear; // Новое поле
-    private String image; // Новое поле
-    private String heroImageName; // Новое поле
-    private String gender; // Новое поле
+    private Integer complexity;
+    private Integer releaseYear;
+    private String image;
+    private String heroImageName;
+    private String gender;
 
     @ElementCollection
     @CollectionTable(name = "hero_races", joinColumns = @JoinColumn(name = "hero_id"))
     @Column(name = "races")
-    private List<String> race; // Новое поле
+    private List<String> race;
 
-    private Integer legs; // Новое поле
+    private Integer legs;
 }

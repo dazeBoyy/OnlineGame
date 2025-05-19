@@ -15,29 +15,27 @@ import java.time.LocalDateTime;
 public class RefreshToken {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY) // Автоинкрементный ID
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false)
-    private String token; // Сам токен
+    private String token;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt; // Дата и время создания токена
-
+    private LocalDateTime createdAt;
     @Column(name = "expires_at", nullable = false)
-    private LocalDateTime expiresAt; // Дата и время истечения токена
+    private LocalDateTime expiresAt;
 
     @Column(name = "is_active", nullable = false)
-    private Boolean isActive; // Статус активности токена
+    private Boolean isActive;
     
-    @ManyToOne(fetch = FetchType.LAZY) // Связь с таблицей users
-    @JoinColumn(name = "user_id", nullable = false) // Внешний ключ для связи с таблицей users
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // Автоматическая установка createdAt при создании токена
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
-        this.isActive = true; // По умолчанию токен активен
+        this.isActive = true;
     }
 }

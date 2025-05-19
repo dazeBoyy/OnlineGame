@@ -59,7 +59,7 @@ public class GameService {
         redisRepo.saveSession(session);
 
         // Запускаем таймер первого раунда
-        startNewRound(session); // Важно! Первый раунд стартует сразу
+        startNewRound(session);
 
         return session;
     }
