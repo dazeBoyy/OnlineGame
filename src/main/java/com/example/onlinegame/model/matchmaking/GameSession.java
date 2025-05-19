@@ -40,9 +40,6 @@ public class GameSession {
     @Builder.Default
     private GameStatus status = GameStatus.WAITING;
 
-    @Builder.Default
-    private int timeLeftInRound = 30;
-
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 

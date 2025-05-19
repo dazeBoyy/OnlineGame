@@ -22,7 +22,6 @@ public class GameStateDTO {
         return GameStateDTO.builder()
                 .roomId(session.getRoomId())
                 .currentRound(session.getCurrentRound())
-                .timeLeft(session.getTimeLeft())
                 .votes(session.getCurrentVotes())
                 .items(session.getItemIds())
                 .backpack(session.getBackpackIds())

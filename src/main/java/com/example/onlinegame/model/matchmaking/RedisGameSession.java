@@ -37,7 +37,7 @@ public class RedisGameSession {
     private Long winnerId;
     private Integer currentRound;
     private Map<Long, Long> currentVotes;
-    private Integer timeLeft;
+    private boolean roundResolved;
     private Long roundStartTime;
 
 

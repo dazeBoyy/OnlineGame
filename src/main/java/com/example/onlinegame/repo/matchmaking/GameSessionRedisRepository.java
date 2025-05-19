@@ -12,6 +12,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 
@@ -21,14 +22,13 @@ import java.util.stream.Collectors;
 public class GameSessionRedisRepository {
     private final RedisTemplate<String, Object> redisTemplate;
 
-    // Keys
+
     private static final String MATCHMAKING_QUEUE = "matchmaking:queue";
     private static final String SESSION_KEY = "sessions:session:";
     private static final String ROUND_TIMER_KEY = "game:round_timer:";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public void addToQueue(Long userId) {
-        // Проверяем, что пользователя еще нет в очереди
         Long count = redisTemplate.opsForList().remove(MATCHMAKING_QUEUE, 1, userId);
         if (count != null && count > 0) {
             log.warn("Пользователь {} уже был в очереди и был удален перед повторным добавлением", userId);
@@ -179,6 +179,19 @@ public class GameSessionRedisRepository {
         }
     }
 
+    public Long getRemainingRoundTime(String roomId) {
+        try {
+            String timerKey = ROUND_TIMER_KEY + roomId;
+            Long remaining = redisTemplate.getExpire(timerKey, TimeUnit.SECONDS);
+            log.debug("Remaining time for room {} is {} seconds", roomId, remaining);
+            return remaining;
+        } catch (Exception e) {
+            log.error("Failed to get remaining time for room {}", roomId, e);
+            throw new RedisOperationException("Failed to get remaining round time", e);
+        }
+    }
+
+
     public void trimQueue(int count) {
         try {
             redisTemplate.opsForList().trim(MATCHMAKING_QUEUE, count, -1);
@@ -200,8 +213,7 @@ public class GameSessionRedisRepository {
         map.put("winnerId", session.getWinnerId() != null ? String.valueOf(session.getWinnerId()) : "");
         map.put("status", session.getStatus().name());
         map.put("currentRound", String.valueOf(session.getCurrentRound()));
-        map.put("timeLeft", String.valueOf(session.getTimeLeft()));
-
+        map.put("roundResolved", String.valueOf(session.isRoundResolved()));
         try {
             map.put("playerIds", objectMapper.writeValueAsString(session.getPlayerIds()));
             map.put("itemIds", objectMapper.writeValueAsString(session.getItemIds()));
@@ -226,11 +238,11 @@ public class GameSessionRedisRepository {
                     .winnerId(toLongSafe(map.get("winnerId")))
                     .status(GameStatus.valueOf(unquote(map.get("status"))))
                     .currentRound(toIntSafe(map.get("currentRound")))
-                    .timeLeft(toIntSafe(map.get("timeLeft")))
                     .playerIds(parseLongSet(map.get("playerIds")))
                     .itemIds(parseLongList(map.get("itemIds")))
                     .backpackIds(parseLongList(map.get("backpackIds")))
                     .currentVotes(parseLongMap(map.get("currentVotes")))
+                    .roundResolved(Boolean.parseBoolean(map.getOrDefault("roundResolved", "false")))
                     .build();
         } catch (Exception e) {
             throw new RuntimeException("Ошибка при десериализации RedisGameSession", e);

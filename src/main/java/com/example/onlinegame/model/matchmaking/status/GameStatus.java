@@ -4,8 +4,8 @@ public enum GameStatus {
     SEARCHING,         // Ожидание игроков
     IN_PROGRESS,    // Игра в процессе
     FINISHED,       // Игра завершена
-    WAITING,        // Ждем игру
-    COMPLETED;      // Игра отменена
+    WAITING;        // Ждем игру
+
     public boolean isActive() {
         return this == WAITING || this == IN_PROGRESS;
     }

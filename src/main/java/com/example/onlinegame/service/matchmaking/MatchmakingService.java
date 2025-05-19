@@ -20,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -38,7 +39,7 @@ public class MatchmakingService {
     private final GameService gameService;
     private final ItemCache itemCache;
 
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public GameSessionDTO findMatch(Long userId) {
         try {
             // 1. Проверяем существование пользователя
@@ -49,13 +50,11 @@ public class MatchmakingService {
             Optional<RedisGameSession> existingSession = redisRepo.findPlayerSession(user.getId());
             if (existingSession.isPresent()) {
                 RedisGameSession session = existingSession.get();
-                if (session.getPlayerIds().contains(user.getId())) {
-                    // Пользователь уже в активной сессии
-                    log.warn("Пользователь {} уже в сессии {}", user.getId(), session.getRoomId());
-                    return convertToDto(session); // Возвращаем текущую сессию
+                if (session.getStatus() == GameStatus.IN_PROGRESS) {
+                    log.warn("Пользователь {} уже в активной сессии {}", user.getId(), session.getRoomId());
+                    return convertToDto(session);
                 }
             }
-
             // 3. Проверяем, не находится ли пользователь уже в очереди
             if (redisRepo.isUserInQueue(user.getId())) {
                 log.warn("Пользователь {} уже в очереди поиска", user.getId());
@@ -183,7 +182,6 @@ public class MatchmakingService {
                 .backpacks(convertItems(session.getBackpackIds()))
                 .neutralItem(convertItem(session.getNeutralItemId()))
                 .currentRound(session.getCurrentRound())
-                .timeLeft(session.getTimeLeft())
                 .build();
     }
 
